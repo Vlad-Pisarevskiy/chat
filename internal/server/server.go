@@ -15,18 +15,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-//type Service interface {
-//	RegisterUser(ctx context.Context, name, login, password string) error
-//	LoginUser(ctx context.Context, login, password string) (*model.User, string, error)
-//	CheckToken(ctx context.Context, token string) (int, error)
-//	GetUsers(ctx context.Context) ([]*model.UserFromDB, error)
-//	FindUserByID(ctx context.Context, id int) (*model.UserFromDB, error)
-//	GetUsersExcept(ctx context.Context, id int) ([]*model.UserFromDB, error)
-//	ChatExists(ctx context.Context, from, to int) (bool, error)
-//	StartChat(ctx context.Context, from, to int) (int, error)
-//	Send(ctx context.Context, chatID, from int, message string) error
-//}
-
 type Server struct {
 	upgrader websocket.Upgrader
 	service  *service.Service
@@ -82,6 +70,7 @@ func (s *Server) GetRouter() *gin.Engine {
 	{
 		chats.GET("/direct", s.GetPeer)
 		chats.GET("/:chatID/messages", s.LoadMessages)
+		chats.POST("/channel", s.CreateChannel)
 	}
 
 	apiGroup := r.Group("/", s.authorization())
@@ -123,6 +112,32 @@ func (s *Server) CreateGroup(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, api.GroupCreated{ChatId: chatID})
+}
+
+func (s *Server) CreateChannel(c *gin.Context) {
+
+	ownerID, ok := c.Get(userIdKey)
+	if !ok {
+		c.Status(http.StatusBadRequest)
+		return
+	}
+
+	var channel service.ChannelCreates
+	if err := c.ShouldBindBodyWithJSON(&channel); err != nil {
+		c.Status(http.StatusBadRequest)
+		return
+	}
+
+	channel.OwnerID = ownerID.(int)
+
+	chatID, err := s.service.CreateChannel(c.Request.Context(), channel)
+	if err != nil {
+		//проверка, что за ошибка здесь
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"chat_id": chatID,
+	})
 }
 
 func (s *Server) GetPeer(c *gin.Context) {

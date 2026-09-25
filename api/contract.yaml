@@ -1,0 +1,111 @@
+openapi: 3.1.0
+info:
+  title: Title
+  description: Title
+  version: 1.0.0
+servers:
+  - url: 'http://localhost:8002'
+paths:
+  /chats/channels:
+    post:
+      description: channel creation
+      operationId: createChannel
+      summary: create channel
+      requestBody:
+        required: true
+        content:
+          apllication/json:
+            schema:
+              $ref: '#/components/schemas/Channel'
+      responses:
+        '200':
+          description: Channel created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelCreated'
+        '400':
+          description: Channel not created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelNotCreated'
+        '409':
+          description: invalid data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelNotCreated'
+
+  /chats/group:
+    post:
+      operationId: createGroup
+      summary: creates group chat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Group'
+      responses:
+        '201':
+          description: successful group creation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupCreated'
+        '400':
+          description: invalid data
+
+components:
+  schemas:
+    Channel:
+      description: schema of channel
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+          description: name of channel
+
+    ChannelCreated:
+      type: object
+      required: [chat_id]
+      properties:
+        channel_id:
+          type: integer
+          description: id of created channel
+
+    ChannelNotCreated:
+      type: object
+      description: error creating chat
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    Group:
+      type: object
+      required: [name, member_ids]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+          description: name of the group chat
+        member_ids:
+          type: array
+          minItems: 1
+          items:
+            type: integer
+            description: type of elements
+          description: array of group members
+    GroupCreated:
+      type: object
+      required: [chat_id]
+      properties:
+        chat_id:
+          type: integer
+          description: id of created group chat

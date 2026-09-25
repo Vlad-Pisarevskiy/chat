@@ -114,6 +114,15 @@ func (s *Service) CreateGroup(ctx context.Context, group GroupCreate) (int, erro
 	return chatID, err
 }
 
+func (s *Service) CreateChannel(ctx context.Context, channel ChannelCreates) (int, error){
+
+	if len(channel.Name) > 100{
+		return 0, //додделать
+	}
+
+	return s.db.CreateChannel(ctx, channel.OwnerID, channel.Name)
+}
+
 func (s *Service) GetGroups(ctx context.Context, userID int) ([]model.GroupFromDB, error) {
 
 	return s.db.GetGroups(ctx, userID)

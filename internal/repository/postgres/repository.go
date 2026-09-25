@@ -195,6 +195,20 @@ func (r *Repository) GetGroups(ctx context.Context, userID int) ([]model.GroupFr
 	return groups, nil
 }
 
+func (r *Repository) CreateChannel(ctx context.Context, ownerID int, name string) (int, error) {
+
+	var id int
+	row := r.pool.QueryRow(ctx, `INSERT INTO chats(label, type, owner_id) VALUES($1, $2, $2) RETURNING id`, name, "channel", ownerID)
+	if err := row.Scan(&id); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// доделать
+		}
+		return nullID, err
+	}
+
+	return id, nil
+}
+
 func (r *Repository) ChatExists(ctx context.Context, from int, to int) (int, bool, error) {
 
 	row := r.pool.QueryRow(ctx,

@@ -11,7 +11,8 @@ CREATE TABLE chats
 (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     label TEXT DEFAULT 'default',
-    type TEXT NOT NULL DEFAULT 'direct' CHECK (type IN ('direct','group'))
+    type TEXT NOT NULL DEFAULT 'direct' CHECK (type IN ('direct','group', 'channel')),
+    owner_id BIGINT DEFAULT 0 REFERENCES users (id)
 );
 
 CREATE TABLE users_chats
@@ -28,7 +29,7 @@ CREATE TABLE messages
     chat_id   BIGINT REFERENCES chats (id) ON DELETE CASCADE NOT NULL ,
     sender_id BIGINT REFERENCES users(id) NOT NULL,
     client_msg_id uuid,
-    data      TEXT,
+    body      TEXT,
     created_at timestamptz
 );
 

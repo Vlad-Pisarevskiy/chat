@@ -19,6 +19,11 @@ type GroupCreate struct {
 	Members []int
 }
 
+type ChannelCreates struct {
+	OwnerID int
+	Name    string
+}
+
 func (s *Service) validateRegister(ctx context.Context, user RegisterInput) error {
 
 	if err := correctLogin(user.Login); err != nil {

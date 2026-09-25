@@ -62,12 +62,13 @@ func (h *Hub) Add(userID int, conn *websocket.Conn, msgChan chan protocol.Data, 
 
 func (h *Hub) Send(userIDs []int, message *protocol.Data) {
 
-	var conns = make([]*Conn, 0, len(userIDs))
+	var conns = make([]*Conn, nullLength, len(userIDs))
 
 	h.mu.RLock()
 	for _, userID := range userIDs {
-		conn := slices.Collect(maps.Keys(h.conns[userID]))
-		conns = append(conns, conn...)
+		for c := range h.conns[userID] {
+			conns = append(conns, c)
+		}
 	}
 	h.mu.RUnlock()
 

@@ -29,12 +29,12 @@
   aside h1 { margin: 0; font-size: 18px; }
   .me { margin: 4px 0 0; font-size: 13px; color: #6b6867; }
 
-  /* Скроллится контейнер, а не список: списков теперь два, и разъезжаться
-     двумя независимыми полосами прокрутки им незачем. */
+  /* Скроллится контейнер, а не список: списков несколько, и разъезжаться
+     независимыми полосами прокрутки им незачем. */
   #lists { flex: 1; overflow-y: auto; }
 
-  #users, #groups { margin: 0; padding: 0; list-style: none; }
-  #users li, #groups li { border-bottom: 1px solid #f0eeee; }
+  #users, #groups, #channels { margin: 0; padding: 0; list-style: none; }
+  #users li, #groups li, #channels li { border-bottom: 1px solid #f0eeee; }
 
   .section {
     margin: 0;
@@ -174,7 +174,7 @@
   }
 
   /* Именно #form, а не form: правила писались под единственную форму на странице,
-     а теперь их две — композитор внизу чата и мастер создания группы. */
+     а теперь их несколько — композитор внизу чата и окна создания группы и канала. */
   #form {
     display: flex;
     gap: 8px;
@@ -183,7 +183,7 @@
     border-top: 1px solid #c9c7c7;
   }
 
-  input[type="text"] {
+  input[type="text"], textarea {
     flex: 1;
     padding: 10px;
     font: inherit;
@@ -191,7 +191,7 @@
     border: 1px solid #c9c7c7;
     border-radius: 2px;
   }
-  input[type="text"]:focus-visible { border-color: #0088b0; outline: 1px solid #0088b0; }
+  input[type="text"]:focus-visible, textarea:focus-visible { border-color: #0088b0; outline: 1px solid #0088b0; }
 
   button[type="submit"], .primary {
     padding: 10px 20px;
@@ -204,7 +204,7 @@
   }
   /* --- создание группы --- */
 
-  #new-group {
+  #new-group, #new-channel {
     width: 100%;
     margin-top: 12px;
     padding: 8px 12px;
@@ -216,7 +216,8 @@
     border-radius: 2px;
     cursor: pointer;
   }
-  #new-group:hover { background: #f7f6f6; }
+  #new-channel { margin-top: 8px; }
+  #new-group:hover, #new-channel:hover { background: #f7f6f6; }
 
   dialog {
     width: min(420px, 92vw);
@@ -232,7 +233,24 @@
   dialog h2 { margin: 0 0 12px; font-size: 18px; }
 
   .field { display: block; margin: 0 0 12px; font-size: 13px; color: #6b6867; }
-  .field input { width: 100%; margin-top: 4px; }
+  .field input, .field textarea { width: 100%; margin-top: 4px; }
+  .field textarea { display: block; resize: vertical; }
+
+  /* «@» — часть поля, а не текст в нём: в значение он не попадает, и
+     проверять формат имени не приходится с оглядкой на префикс. */
+  .handle { display: flex; margin-top: 4px; }
+  .handle .prefix {
+    flex: none;
+    padding: 10px;
+    color: #8a8785;
+    background: #f7f6f6;
+    border: 1px solid #c9c7c7;
+    border-right: 0;
+    border-radius: 2px 0 0 2px;
+  }
+  .field .handle input { min-width: 0; margin-top: 0; border-radius: 0 2px 2px 0; }
+
+  .hint { margin: -8px 0 12px; font-size: 12px; color: #8a8785; }
 
   #members {
     max-height: 40vh;
@@ -301,6 +319,7 @@
       {{end}}
 
       <button type="button" id="new-group">Создать группу</button>
+      <button type="button" id="new-channel">Создать канал</button>
 
       <script>
         const myUserId = {{.MyID}};
@@ -340,6 +359,21 @@
       {{if .Groups}}{{range .Groups}}
       <li>
         <button type="button" class="user group" data-chat-id="{{.ID}}" data-name="{{.Name}}">
+          <span class="name">{{.Name}}</span>
+          <span class="unread" hidden></span>
+        </button>
+      </li>
+      {{end}}{{end}}
+    </ul>
+
+    <p class="section" id="channels-title" hidden>Каналы</p>
+
+    <!-- Тот же if, что у групп: без него страница падала бы, пока сервер не кладёт
+         Channels. Роль едет в data-role — по ней решается, рисовать ли поле ввода. -->
+    <ul id="channels">
+      {{if .Channels}}{{range .Channels}}
+      <li>
+        <button type="button" class="user channel" data-chat-id="{{.ID}}" data-name="{{.Name}}" data-role="{{.Role}}">
           <span class="name">{{.Name}}</span>
           <span class="unread" hidden></span>
         </button>
@@ -395,6 +429,40 @@
   </form>
 </dialog>
 
+<dialog id="channel-dialog">
+  <!-- Один шаг, без выбора участников: подписчики приходят в канал сами,
+       а владельца сервер записывает туда при создании. -->
+  <form id="channel-form">
+    <section>
+      <h2>Новый канал</h2>
+
+      <label class="field">Название
+        <input id="channel-name" type="text" maxlength="50" autocomplete="off" placeholder="Например, Новости команды">
+      </label>
+
+      <label class="field">Описание (необязательно)
+        <textarea id="channel-description" maxlength="255" rows="3"></textarea>
+      </label>
+
+      <label class="field">Публичное имя (необязательно)
+        <span class="handle">
+          <span class="prefix">@</span>
+          <input id="channel-handle" type="text" maxlength="32" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="team_news">
+        </span>
+      </label>
+      <p class="hint">5–32 символа: латиница, цифры и _, начинается с буквы. Без имени канал будет закрытым.</p>
+      <p class="error" id="handle-error" hidden></p>
+
+      <p class="error" id="channel-error" hidden></p>
+
+      <p class="actions">
+        <button type="button" class="ghost" id="cancel-channel">Отмена</button>
+        <button type="submit" id="create-channel" disabled>Создать канал</button>
+      </p>
+    </section>
+  </form>
+</dialog>
+
 <p id="toast" hidden></p>
 
 <script>
@@ -403,6 +471,8 @@
 const usersEl = document.getElementById("users");
 const groupsEl = document.getElementById("groups");
 const groupsTitleEl = document.getElementById("groups-title");
+const channelsEl = document.getElementById("channels");
+const channelsTitleEl = document.getElementById("channels-title");
 const messagesEl = document.getElementById("messages");
 const placeholderEl = document.getElementById("placeholder");
 const formEl = document.getElementById("form");
@@ -411,7 +481,8 @@ const peerEl = document.getElementById("peer");
 const statusEl = document.getElementById("status");
 const logoutEl = document.getElementById("logout");
 
-// Ключ диалога: "u:<id пользователя>" для лички, "g:<id чата>" для группы.
+// Ключ диалога: "u:<id пользователя>" для лички, "g:<id чата>" для группы,
+// "c:<id чата>" для канала.
 // Почему не chat_id для всех: у лички чата может ещё не быть — он заводится
 // на первом сообщении, а человек в списке уже есть. Личность собеседника при
 // этом не меняется, а chat_id появляется позже, и ключ по типу это разводит.
@@ -444,16 +515,23 @@ let loggedOut = false;
 
 function userKey(userId) { return "u:" + userId; }
 function groupKey(chatId) { return "g:" + chatId; }
+function channelKey(chatId) { return "c:" + chatId; }
 function peerIdOf(key) { return key.slice(2); }
 function isGroup(key) { return key.startsWith("g:"); }
+function isChannel(key) { return key.startsWith("c:"); }
 
-// У группы чат существует с самого начала, поэтому связку ключ-чат заполняем
-// сразу при загрузке: по ней входящие кадры попадут в нужную ленту, даже если
-// по группе ни разу не кликали.
+// У группы и канала чат существует с самого начала, поэтому связку ключ-чат
+// заполняем сразу при загрузке: по ней входящие кадры попадут в нужную ленту,
+// даже если по чату ни разу не кликали.
 for (const button of groupsEl.querySelectorAll(".group")) {
   bindChat(Number(button.dataset.chatId), groupKey(button.dataset.chatId));
 }
 groupsTitleEl.hidden = groupsEl.children.length === 0;
+
+for (const button of channelsEl.querySelectorAll(".channel")) {
+  bindChat(Number(button.dataset.chatId), channelKey(button.dataset.chatId));
+}
+channelsTitleEl.hidden = channelsEl.children.length === 0;
 
 userNames.set(Number(myUserId), myName);
 for (const button of usersEl.querySelectorAll(".user")) {
@@ -476,6 +554,11 @@ groupsEl.addEventListener("click", (event) => {
   if (button) openConversation(groupKey(button.dataset.chatId), button.dataset.name, Number(button.dataset.chatId));
 });
 
+channelsEl.addEventListener("click", (event) => {
+  const button = event.target.closest(".channel");
+  if (button) openConversation(channelKey(button.dataset.chatId), button.dataset.name, Number(button.dataset.chatId));
+});
+
 async function openConversation(key, name, chatId) {
   currentKey = key;
   currentChatId = chatId;
@@ -485,10 +568,15 @@ async function openConversation(key, name, chatId) {
 
   placeholderEl.hidden = true;
   messagesEl.hidden = false;
-  formEl.hidden = false;
+
+  // Подписчик канала только читает. Скрытое поле — это удобство, а не защита:
+  // писать в канал без роли должен запрещать сервер.
+  const readOnly = !canPost(key);
+  formEl.hidden = readOnly;
+  textEl.placeholder = isChannel(key) ? "Новый пост" : "Сообщение";
 
   messagesEl.replaceChildren();
-  textEl.focus();
+  if (!readOnly) textEl.focus();
 
   if (chatId === null) {
     // Клик по человеку — операция только на чтение. Спрашиваем, есть ли уже чат,
@@ -531,9 +619,19 @@ function markActive(key) {
 }
 
 function keyOf(button) {
-  return button.classList.contains("group")
-    ? groupKey(button.dataset.chatId)
-    : userKey(button.dataset.id);
+  if (button.classList.contains("group")) return groupKey(button.dataset.chatId);
+  if (button.classList.contains("channel")) return channelKey(button.dataset.chatId);
+  return userKey(button.dataset.id);
+}
+
+// Роль читаем со строки в сайдбаре, а не держим отдельной картой: строка и так
+// единственное место, куда она приходит — из шаблона или после создания канала.
+function canPost(key) {
+  if (!isChannel(key)) return true;
+
+  const button = itemByKey(key);
+  const role = button && button.dataset.role;
+  return role === "owner" || role === "admin";
 }
 
 // --- присутствие ---
@@ -652,17 +750,18 @@ function push(key, message) {
   if (button) button.querySelector(".unread").hidden = false;
 }
 
-// Строка в сайдбаре по ключу: люди и группы лежат в разных списках и
+// Строка в сайдбаре по ключу: люди, группы и каналы лежат в разных списках и
 // адресуются разными атрибутами.
 function itemByKey(key) {
   const value = CSS.escape(key.slice(2));
-  return isGroup(key)
-    ? groupsEl.querySelector('.group[data-chat-id="' + value + '"]')
-    : usersEl.querySelector('.user[data-id="' + value + '"]');
+  if (isGroup(key)) return groupsEl.querySelector('.group[data-chat-id="' + value + '"]');
+  if (isChannel(key)) return channelsEl.querySelector('.channel[data-chat-id="' + value + '"]');
+  return usersEl.querySelector('.user[data-id="' + value + '"]');
 }
 
 // Подпись нужна только в группе и только под чужими репликами: в личке
 // собеседник один и назван в заголовке, свои реплики выделены цветом.
+// В канале её нет тоже: пишет канал, а его название уже в заголовке.
 function authorFor(key, senderId, mine) {
   if (mine || !isGroup(key)) return null;
   return userNames.get(Number(senderId)) || "участник";
@@ -946,7 +1045,7 @@ newGroupEl.addEventListener("click", () => {
   // Состояние сбрасываем на открытии, а не на закрытии: закрыть окно можно и по Esc,
   // и кнопкой, и после успеха — одного места для сброса среди них нет.
   groupFormEl.reset();
-  hideError();
+  hideError(groupErrorEl);
   toMembersEl.disabled = true;
   showStep(stepNameEl);
 
@@ -963,7 +1062,7 @@ groupNameEl.addEventListener("input", () => {
 toMembersEl.addEventListener("click", () => nextStep());
 
 backToNameEl.addEventListener("click", () => {
-  hideError();
+  hideError(groupErrorEl);
   showStep(stepNameEl);
   groupNameEl.focus();
 });
@@ -1021,13 +1120,14 @@ function checkedIds() {
   return Array.from(membersEl.querySelectorAll("input:checked"), (box) => Number(box.value));
 }
 
-function showError(text) {
-  groupErrorEl.textContent = text;
-  groupErrorEl.hidden = false;
+// Элемент передаём явно: ошибки есть и в окне группы, и в окне канала.
+function showError(el, text) {
+  el.textContent = text;
+  el.hidden = false;
 }
 
-function hideError() {
-  groupErrorEl.hidden = true;
+function hideError(el) {
+  el.hidden = true;
 }
 
 // #status занят состоянием сокета — подтверждение либо затёрло бы «нет связи»,
@@ -1061,7 +1161,7 @@ groupFormEl.addEventListener("submit", async (event) => {
   const memberIds = checkedIds();
   if (name === "" || memberIds.length === 0) return;
 
-  hideError();
+  hideError(groupErrorEl);
   creating = true;
   createGroupEl.disabled = true;
 
@@ -1104,6 +1204,15 @@ groupFormEl.addEventListener("submit", async (event) => {
 function addGroup(chatId, name) {
   if (keyByChat.has(chatId)) return;
 
+  groupsEl.append(chatItem(chatButton("group", chatId, name)));
+  groupsTitleEl.hidden = false;
+
+  bindChat(chatId, groupKey(chatId));
+}
+
+// Та же разметка, что отдаёт шаблон: строки, дорисованные после создания, и
+// строки из шаблона должны быть неотличимы для кликов, подсветки и непрочитанного.
+function chatButton(kind, chatId, name) {
   const label = document.createElement("span");
   label.className = "name";
   label.textContent = name; // textContent: название придёт обратно от сервера
@@ -1114,25 +1223,176 @@ function addGroup(chatId, name) {
 
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "user group";
+  button.className = "user " + kind;
   button.dataset.chatId = chatId;
   button.dataset.name = name;
   button.append(label, unread);
 
+  return button;
+}
+
+function chatItem(button) {
   const li = document.createElement("li");
   li.append(button);
-
-  groupsEl.append(li);
-  groupsTitleEl.hidden = false;
-
-  bindChat(chatId, groupKey(chatId));
+  return li;
 }
 
 // Окно не закрываем: закрытие стёрло бы и название, и отметки — набирать заново.
 function failCreate(text) {
   creating = false;
-  showError(text);
+  showError(groupErrorEl, text);
   createGroupEl.disabled = false;
+}
+
+// --- создание канала ---
+
+const newChannelEl = document.getElementById("new-channel");
+const channelDialogEl = document.getElementById("channel-dialog");
+const channelFormEl = document.getElementById("channel-form");
+const channelNameEl = document.getElementById("channel-name");
+const channelDescriptionEl = document.getElementById("channel-description");
+const channelHandleEl = document.getElementById("channel-handle");
+const handleErrorEl = document.getElementById("handle-error");
+const channelErrorEl = document.getElementById("channel-error");
+const cancelChannelEl = document.getElementById("cancel-channel");
+const createChannelEl = document.getElementById("create-channel");
+
+// Те же правила, что проверяет сервер. Здесь они ради подсказки до отправки,
+// решает всё равно сервер.
+const handlePattern = /^[A-Za-z][A-Za-z0-9_]{4,31}$/;
+const handleRules = "5–32 символа: латиница, цифры и _, начинается с буквы";
+
+let creatingChannel = false;
+
+newChannelEl.addEventListener("click", () => {
+  // Сброс на открытии, а не на закрытии — по той же причине, что у группы.
+  channelFormEl.reset();
+  hideError(handleErrorEl);
+  hideError(channelErrorEl);
+  createChannelEl.disabled = true;
+
+  channelDialogEl.showModal();
+  channelNameEl.focus();
+});
+
+cancelChannelEl.addEventListener("click", () => channelDialogEl.close());
+
+channelNameEl.addEventListener("input", () => {
+  createChannelEl.disabled = channelName() === "";
+});
+
+// Ошибку формата показываем, когда поле покинули, а не на каждый символ: на
+// первых буквах любое имя «короче пяти», и красный текст под полем был бы шумом.
+// Зато убираем её сразу, как только имя стало годным.
+channelHandleEl.addEventListener("change", () => {
+  if (!handleValid()) showError(handleErrorEl, handleRules);
+});
+
+channelHandleEl.addEventListener("input", () => {
+  if (handleValid()) hideError(handleErrorEl);
+});
+
+function channelName() {
+  return channelNameEl.value.trim();
+}
+
+// «@» уже нарисован перед полем, но скопированное «@team_news» его продублирует.
+// Срезаем здесь, а не в самом поле: переписывать значение под курсором — сбивать ввод.
+function channelHandle() {
+  return channelHandleEl.value.trim().replace(/^@/, "");
+}
+
+// Пустое имя годное: это закрытый канал.
+function handleValid() {
+  const handle = channelHandle();
+  return handle === "" || handlePattern.test(handle);
+}
+
+channelFormEl.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  // Флаг, а не вид кнопки: Enter в поле названия отправляет форму и мимо неё.
+  if (creatingChannel) return;
+
+  const name = channelName();
+  if (name === "") return;
+
+  if (!handleValid()) {
+    showError(handleErrorEl, handleRules);
+    channelHandleEl.focus();
+    return;
+  }
+
+  // Пустые необязательные поля не шлём вовсе, а не шлём "": у «описания нет»
+  // должно быть одно представление в базе — NULL, а не NULL или пустая строка.
+  // Владельца не шлём тоже: сервер знает его из токена.
+  const body = { name: name };
+  const description = channelDescriptionEl.value.trim();
+  const handle = channelHandle();
+  if (description !== "") body.description = description;
+  if (handle !== "") body.handle = handle;
+
+  hideError(handleErrorEl);
+  hideError(channelErrorEl);
+  creatingChannel = true;
+  createChannelEl.disabled = true;
+
+  let response = null;
+  try {
+    response = await fetch("/chats/channels", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    console.error(err);
+    failCreateChannel(channelErrorEl, "Нет связи с сервером");
+    return;
+  }
+
+  // 409 — единственная ошибка, которую пользователь исправит сам, поэтому она
+  // встаёт под полем имени, а фокус возвращается туда же.
+  if (response.status === 409) {
+    failCreateChannel(handleErrorEl, "Имя @" + handle + " уже занято");
+    channelHandleEl.focus();
+    return;
+  }
+
+  if (!response.ok) {
+    failCreateChannel(channelErrorEl, "Не удалось создать канал (" + response.status + ")");
+    return;
+  }
+
+  // Как у группы: канал уже создан, даже если тело ответа не разобралось.
+  const payload = await response.json().catch(() => null);
+  const chatId = payload ? payload.chat_id : undefined;
+
+  creatingChannel = false;
+  channelDialogEl.close();
+
+  // Создатель — владелец, это известно и без ответа сервера.
+  if (chatId) addChannel(chatId, name, "owner");
+
+  toast("Канал «" + name + "» создан");
+});
+
+function addChannel(chatId, name, role) {
+  if (keyByChat.has(chatId)) return;
+
+  const button = chatButton("channel", chatId, name);
+  button.dataset.role = role;
+
+  channelsEl.append(chatItem(button));
+  channelsTitleEl.hidden = false;
+
+  bindChat(chatId, channelKey(chatId));
+}
+
+// Окно не закрываем: набранное название и описание пропали бы.
+function failCreateChannel(errorEl, text) {
+  creatingChannel = false;
+  showError(errorEl, text);
+  createChannelEl.disabled = false;
 }
 </script>
 
