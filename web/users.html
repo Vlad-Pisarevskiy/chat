@@ -252,6 +252,15 @@
 
   .hint { margin: -8px 0 12px; font-size: 12px; color: #8a8785; }
 
+  .toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 12px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+
   #members {
     max-height: 40vh;
     margin: 0 0 12px;
@@ -444,14 +453,24 @@
         <textarea id="channel-description" maxlength="255" rows="3"></textarea>
       </label>
 
-      <label class="field">Публичное имя (необязательно)
-        <span class="handle">
-          <span class="prefix">@</span>
-          <input id="channel-handle" type="text" maxlength="32" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="team_news">
-        </span>
+      <label class="toggle">
+        <input id="channel-private" type="checkbox">
+        Приватный канал
       </label>
-      <p class="hint">5–32 символа: латиница, цифры и _, начинается с буквы. Без имени канал будет закрытым.</p>
-      <p class="error" id="handle-error" hidden></p>
+      <p class="hint" id="private-hint" hidden>Канал нельзя будет найти по имени — только по приглашению.</p>
+
+      <!-- Обёртка ради одного hidden на всё, что относится к имени: у приватного
+           канала его нет, и поле, подсказка и ошибка прячутся вместе. -->
+      <div id="handle-group">
+        <label class="field">Публичное имя
+          <span class="handle">
+            <span class="prefix">@</span>
+            <input id="channel-handle" type="text" maxlength="32" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="team_news">
+          </span>
+        </label>
+        <p class="hint">5–32 символа: латиница, цифры и _, начинается с буквы.</p>
+        <p class="error" id="handle-error" hidden></p>
+      </div>
 
       <p class="error" id="channel-error" hidden></p>
 
@@ -1252,6 +1271,9 @@ const channelFormEl = document.getElementById("channel-form");
 const channelNameEl = document.getElementById("channel-name");
 const channelDescriptionEl = document.getElementById("channel-description");
 const channelHandleEl = document.getElementById("channel-handle");
+const channelPrivateEl = document.getElementById("channel-private");
+const privateHintEl = document.getElementById("private-hint");
+const handleGroupEl = document.getElementById("handle-group");
 const handleErrorEl = document.getElementById("handle-error");
 const channelErrorEl = document.getElementById("channel-error");
 const cancelChannelEl = document.getElementById("cancel-channel");
@@ -1270,6 +1292,8 @@ newChannelEl.addEventListener("click", () => {
   hideError(handleErrorEl);
   hideError(channelErrorEl);
   createChannelEl.disabled = true;
+  // reset() снял галочку, но change при этом не приходит — видимость догоняем руками.
+  syncPrivacy();
 
   channelDialogEl.showModal();
   channelNameEl.focus();
@@ -1292,6 +1316,20 @@ channelHandleEl.addEventListener("input", () => {
   if (handleValid()) hideError(handleErrorEl);
 });
 
+// Набранное имя при включении приватности не стираем: передумал — снял галочку,
+// и имя на месте. Отправлять его всё равно не будем.
+channelPrivateEl.addEventListener("change", () => {
+  syncPrivacy();
+  if (!channelPrivateEl.checked) channelHandleEl.focus();
+});
+
+function syncPrivacy() {
+  const isPrivate = channelPrivateEl.checked;
+  handleGroupEl.hidden = isPrivate;
+  privateHintEl.hidden = !isPrivate;
+  if (isPrivate) hideError(handleErrorEl);
+}
+
 function channelName() {
   return channelNameEl.value.trim();
 }
@@ -1302,7 +1340,8 @@ function channelHandle() {
   return channelHandleEl.value.trim().replace(/^@/, "");
 }
 
-// Пустое имя годное: это закрытый канал.
+// Пустое здесь «пока не ошибка»: на blur пустое поле не ругаем. Обязательность
+// имени у публичного канала проверяется при отправке.
 function handleValid() {
   const handle = channelHandle();
   return handle === "" || handlePattern.test(handle);
@@ -1317,7 +1356,18 @@ channelFormEl.addEventListener("submit", async (event) => {
   const name = channelName();
   if (name === "") return;
 
-  if (!handleValid()) {
+  // Приватность в запрос не едет отдельным полем: для сервера приватный канал —
+  // это канал без handle. Два поля могли бы противоречить друг другу.
+  const isPrivate = channelPrivateEl.checked;
+  const handle = isPrivate ? "" : channelHandle();
+
+  if (!isPrivate && handle === "") {
+    showError(handleErrorEl, "Укажите публичное имя или сделайте канал приватным");
+    channelHandleEl.focus();
+    return;
+  }
+
+  if (!isPrivate && !handleValid()) {
     showError(handleErrorEl, handleRules);
     channelHandleEl.focus();
     return;
@@ -1328,7 +1378,6 @@ channelFormEl.addEventListener("submit", async (event) => {
   // Владельца не шлём тоже: сервер знает его из токена.
   const body = { name: name };
   const description = channelDescriptionEl.value.trim();
-  const handle = channelHandle();
   if (description !== "") body.description = description;
   if (handle !== "") body.handle = handle;
 

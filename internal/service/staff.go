@@ -3,6 +3,8 @@ package service
 import (
 	errors1 "chatflow/internal/app-errors"
 	"context"
+	"fmt"
+	"regexp"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -20,8 +22,9 @@ type GroupCreate struct {
 }
 
 type ChannelCreates struct {
-	OwnerID int
-	Name    string
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	Handle      *string `json:"handle"`
 }
 
 func (s *Service) validateRegister(ctx context.Context, user RegisterInput) error {
@@ -95,6 +98,34 @@ func correctPassword(password string) error {
 
 	if len(password) > maxPasswordLength {
 		return errors1.ErrLongPassword
+	}
+
+	return nil
+}
+
+func verifyChannelName(name string) error {
+
+	re, err := regexp.Compile(fmt.Sprintf(`^[A-Za-z][A-Za-z0-9_]{%d, %d}$`,
+		minNameLength, maxNameLength))
+	if err != nil {
+		return err
+	}
+
+	if re.MatchString(name) {
+		return nil
+	}
+
+	return errors1.ErrIncorrectData
+}
+
+func verifyChannelHandle(handle string) error {
+
+	if handle == emptyName {
+		return errors1.ErrEmptyHandle
+	}
+
+	if len(handle) > maxHandleLength {
+		return errors1.ErrLongHandle
 	}
 
 	return nil

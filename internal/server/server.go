@@ -6,6 +6,7 @@ import (
 	"chatflow/internal/hub"
 	"chatflow/internal/protocol"
 	"chatflow/internal/service"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -70,7 +71,7 @@ func (s *Server) GetRouter() *gin.Engine {
 	{
 		chats.GET("/direct", s.GetPeer)
 		chats.GET("/:chatID/messages", s.LoadMessages)
-		chats.POST("/channel", s.CreateChannel)
+		chats.POST("/channels", s.CreateChannel)
 	}
 
 	apiGroup := r.Group("/", s.authorization())
@@ -128,11 +129,17 @@ func (s *Server) CreateChannel(c *gin.Context) {
 		return
 	}
 
-	channel.OwnerID = ownerID.(int)
-
-	chatID, err := s.service.CreateChannel(c.Request.Context(), channel)
+	chatID, err := s.service.CreateChannel(c.Request.Context(), ownerID.(int), channel)
 	if err != nil {
-		//проверка, что за ошибка здесь
+		if errors.Is(err, errors1.ErrNameInUse) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+		}
+
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": err.Error(),
+		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{

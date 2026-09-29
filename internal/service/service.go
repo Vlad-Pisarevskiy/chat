@@ -8,6 +8,7 @@ import (
 	rand "crypto/rand"
 	"crypto/sha256"
 	"slices"
+	"strings"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -126,11 +127,10 @@ func (s *Service) CreateChannel(ctx context.Context, ownerID int, channel Channe
 			return nullID, err
 		}
 
-	if len(channel.Name) > 100{
-		return 0, //додделать
+		return s.db.CreatePublicChannel(ctx, ownerID, channel.Name, channel.Description, *channel.Handle)
 	}
 
-	return s.db.CreateChannel(ctx, channel.OwnerID, channel.Name)
+	return s.db.CreatePrivateChannel(ctx, ownerID, channel.Name, channel.Description)
 }
 
 func (s *Service) GetGroups(ctx context.Context, userID int) ([]model.GroupFromDB, error) {

@@ -33,3 +33,9 @@ var ErrIncorrectData = errors.New("incorrect data")
 var ErrUserDoesntExist = errors.New("user doesnt exist")
 
 var ErrNotChatMember = errors.New("user is not a chat member")
+
+var ErrNameInUse = errors.New("channel name is already in use")
+
+var ErrEmptyHandle = errors.New("handle is empty")
+
+var ErrLongHandle = errors.New("handle is too long")

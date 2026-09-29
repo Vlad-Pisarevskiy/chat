@@ -195,14 +195,34 @@ func (r *Repository) GetGroups(ctx context.Context, userID int) ([]model.GroupFr
 	return groups, nil
 }
 
-func (r *Repository) CreateChannel(ctx context.Context, ownerID int, name string) (int, error) {
+func (r *Repository) CreatePublicChannel(ctx context.Context, ownerID int, name, description string, handle string) (int, error) {
 
 	var id int
-	row := r.pool.QueryRow(ctx, `INSERT INTO chats(label, type, owner_id) VALUES($1, $2, $2) RETURNING id`, name, "channel", ownerID)
+	var exists bool
+
+	row := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM chats WHERE handle = $1)`, handle)
+	if err := row.Scan(&exists); err != nil {
+		return nullID, err
+	}
+
+	if exists {
+		return nullID, errors1.ErrNameInUse
+	}
+
+	row = r.pool.QueryRow(ctx, `INSERT INTO chats(label, type, owner_id, description, handle) VALUES($1, $2, $3, $4, $5) RETURNING id`,
+		name, "channel", ownerID, description, handle)
 	if err := row.Scan(&id); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			// доделать
-		}
+		return nullID, err
+	}
+
+	return id, nil
+}
+
+func (r *Repository) CreatePrivateChannel(ctx context.Context, ownerID int, name, description string) (int, error) {
+
+	var id int
+	row := r.pool.QueryRow(ctx, `INSERT INTO chats(label, type, owner_id, description) VALUES($1, $2, $3, $4) RETURNING id`, name, "channel", ownerID, description)
+	if err := row.Scan(&id); err != nil {
 		return nullID, err
 	}
 
@@ -299,7 +319,7 @@ func (r *Repository) CreateGroup(ctx context.Context, name string, members []int
 	row := tx.QueryRow(ctx, `SELECT COUNT(*) FROM users WHERE id = ANY($1)`, members)
 	var count int
 
-	if err := row.Scan(&count); err != nil {
+	if err = row.Scan(&count); err != nil {
 		return nullID, err
 	}
 
