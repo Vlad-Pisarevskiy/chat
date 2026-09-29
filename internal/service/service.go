@@ -114,7 +114,17 @@ func (s *Service) CreateGroup(ctx context.Context, group GroupCreate) (int, erro
 	return chatID, err
 }
 
-func (s *Service) CreateChannel(ctx context.Context, channel ChannelCreates) (int, error){
+func (s *Service) CreateChannel(ctx context.Context, ownerID int, channel ChannelCreates) (int, error) {
+
+	channel.Name = strings.Trim(channel.Name, " ")
+	if err := verifyChannelName(channel.Name); err != nil {
+		return nullID, err
+	}
+
+	if channel.Handle != nil {
+		if err := verifyChannelHandle(*channel.Handle); err != nil {
+			return nullID, err
+		}
 
 	if len(channel.Name) > 100{
 		return 0, //додделать
