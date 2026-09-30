@@ -1,7 +1,6 @@
 package server
 
 import (
-	"chatflow/internal/api"
 	errors1 "chatflow/internal/app-errors"
 	"chatflow/internal/hub"
 	"chatflow/internal/protocol"
@@ -71,11 +70,9 @@ func (s *Server) GetRouter() *gin.Engine {
 	{
 		chats.GET("/direct", s.GetPeer)
 		chats.GET("/:chatID/messages", s.LoadMessages)
+		chats.POST("/group", s.CreateGroup)
 		chats.POST("/channels", s.CreateChannel)
 	}
-
-	apiGroup := r.Group("/", s.authorization())
-	api.RegisterHandlers(apiGroup, s)
 
 	return r
 }
@@ -90,19 +87,14 @@ func (s *Server) CreateGroup(c *gin.Context) {
 		return
 	}
 
-	var body api.CreateGroupJSONRequestBody
-	if err := c.ShouldBindJSON(&body); err != nil {
+	var group service.GroupCreate
+	if err := c.ShouldBindJSON(&group); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": errors1.ErrIncorrectData,
 		})
 		return
 	}
-
-	group := service.GroupCreate{
-		OwnerID: userID.(int),
-		Name:    body.Name,
-		Members: body.MemberIds,
-	}
+	group.OwnerID = userID.(int)
 
 	chatID, err := s.service.CreateGroup(c.Request.Context(), group)
 	if err != nil {
@@ -112,7 +104,7 @@ func (s *Server) CreateGroup(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, api.GroupCreated{ChatId: chatID})
+	c.JSON(http.StatusCreated, gin.H{"chat_id": chatID})
 }
 
 func (s *Server) CreateChannel(c *gin.Context) {

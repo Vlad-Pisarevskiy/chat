@@ -16,9 +16,9 @@ type RegisterInput struct {
 }
 
 type GroupCreate struct {
-	OwnerID int
-	Name    string
-	Members []int
+	OwnerID int    `json:"-"`
+	Name    string `json:"name"`
+	Members []int  `json:"member_ids"`
 }
 
 type ChannelCreates struct {

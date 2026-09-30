@@ -12,7 +12,7 @@ CREATE TABLE chats
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     label TEXT DEFAULT 'default',
     type TEXT NOT NULL DEFAULT 'direct' CHECK (type IN ('direct','group', 'channel')),
-    owner_id BIGINT DEFAULT 0 REFERENCES users (id),
+    owner_id BIGINT REFERENCES users (id),
     handle TEXT UNIQUE,
     description TEXT
 );
@@ -21,7 +21,7 @@ CREATE TABLE users_chats
 (
     chat_id   BIGINT REFERENCES chats (id) ON DELETE CASCADE,
     user_id   BIGINT REFERENCES users (id) ON DELETE CASCADE,
-    role TEXT NOT NULL DEFAULT 'member' CHECK(type IN ('member', 'owner', 'admin')),
+    role TEXT NOT NULL DEFAULT 'member' CHECK(role IN ('member', 'owner', 'admin')),
     last_read BIGINT,
     PRIMARY KEY (user_id, chat_id)
 );
