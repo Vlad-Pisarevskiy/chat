@@ -107,6 +107,10 @@ func (s *Service) CreateGroup(ctx context.Context, group GroupCreate) (int, erro
 	slices.Sort(group.Members)
 	group.Members = slices.Compact(group.Members)
 
+	if err := verifyGroup(group); err != nil {
+		return nullID, err
+	}
+
 	chatID, err := s.db.CreateGroup(ctx, group.Name, group.Members)
 	if err != nil {
 		return nullID, err
@@ -120,6 +124,12 @@ func (s *Service) CreateChannel(ctx context.Context, ownerID int, channel Channe
 	channel.Name = strings.Trim(channel.Name, " ")
 	if err := verifyChannelName(channel.Name); err != nil {
 		return nullID, err
+	}
+
+	if channel.Description != nil {
+		if err := verifyChannelDescription(*channel.Description); err != nil {
+			return nullID, err
+		}
 	}
 
 	if channel.Handle != nil {

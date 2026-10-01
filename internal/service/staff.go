@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -23,7 +24,7 @@ type GroupCreate struct {
 
 type ChannelCreates struct {
 	Name        string  `json:"name"`
-	Description string  `json:"description"`
+	Description *string `json:"description"`
 	Handle      *string `json:"handle"`
 }
 
@@ -105,27 +106,49 @@ func correctPassword(password string) error {
 
 func verifyChannelName(name string) error {
 
-	re, err := regexp.Compile(fmt.Sprintf(`^[A-Za-z][A-Za-z0-9_]{%d, %d}$`,
-		minNameLength, maxNameLength))
-	if err != nil {
-		return err
+	if utf8.RuneCountInString(name) < minNameLength || utf8.RuneCountInString(name) > maxNameLength {
+		return errors1.ErrIncorrectNameLength
 	}
 
-	if re.MatchString(name) {
-		return nil
+	return nil
+}
+
+func verifyChannelDescription(desc string) error {
+
+	if utf8.RuneCountInString(desc) > maxDescriptionLength {
+		return errors1.ErrIncorrectData
 	}
 
-	return errors1.ErrIncorrectData
+	return nil
 }
 
 func verifyChannelHandle(handle string) error {
 
-	if handle == emptyName {
-		return errors1.ErrEmptyHandle
+	re, err := regexp.Compile(fmt.Sprintf(`^[A-Za-z][A-Za-z0-9_]{%d, %d}$`,
+		minHandleLength, maxHandleLength))
+	if err != nil {
+		return err
+	}
+
+	if re.MatchString(handle) {
+		return nil
 	}
 
 	if len(handle) > maxHandleLength {
 		return errors1.ErrLongHandle
+	}
+
+	return nil
+}
+
+func verifyGroup(group GroupCreate) error {
+
+	if len(group.Name) < minNameLength || len(group.Name) > maxNameLength {
+		return errors1.ErrIncorrectNameLength
+	}
+
+	if len(group.Members) < minMembers {
+		return errors1.ErrIncorrectMembersCount
 	}
 
 	return nil

@@ -124,14 +124,16 @@ func (s *Server) CreateChannel(c *gin.Context) {
 	chatID, err := s.service.CreateChannel(c.Request.Context(), ownerID.(int), channel)
 	if err != nil {
 		if errors.Is(err, errors1.ErrNameInUse) {
-			c.JSON(http.StatusBadRequest, gin.H{
+			c.JSON(http.StatusConflict, gin.H{
 				"error": err.Error(),
 			})
+			return
 		}
 
 		c.JSON(http.StatusBadGateway, gin.H{
 			"error": err.Error(),
 		})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{

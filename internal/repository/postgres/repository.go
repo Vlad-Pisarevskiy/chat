@@ -17,12 +17,6 @@ type Repository struct {
 	pool *pgxpool.Pool
 }
 
-const (
-	nullID         = 0
-	tokenTTL       = time.Hour * 24
-	tokenThreshold = time.Hour * 12
-)
-
 func New(pool *pgxpool.Pool) *Repository {
 
 	return &Repository{pool: pool}
@@ -195,13 +189,22 @@ func (r *Repository) GetGroups(ctx context.Context, userID int) ([]model.GroupFr
 	return groups, nil
 }
 
-func (r *Repository) CreatePublicChannel(ctx context.Context, ownerID int, name, description string, handle string) (int, error) {
+func (r *Repository) CreatePublicChannel(ctx context.Context, ownerID int, name string, description *string, handle string) (int, error) {
 
 	var id int
 	var exists bool
 
-	row := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM chats WHERE handle = $1)`, handle)
-	if err := row.Scan(&exists); err != nil {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nullID, err
+	}
+
+	defer func(tx pgx.Tx, ctx context.Context) {
+		_ = tx.Rollback(ctx)
+	}(tx, ctx)
+
+	row := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM chats WHERE handle = $1)`, handle)
+	if err = row.Scan(&exists); err != nil {
 		return nullID, err
 	}
 
@@ -209,24 +212,43 @@ func (r *Repository) CreatePublicChannel(ctx context.Context, ownerID int, name,
 		return nullID, errors1.ErrNameInUse
 	}
 
-	row = r.pool.QueryRow(ctx, `INSERT INTO chats(label, type, owner_id, description, handle) VALUES($1, $2, $3, $4, $5) RETURNING id`,
+	row = tx.QueryRow(ctx, `INSERT INTO chats(label, type, owner_id, description, handle) VALUES($1, $2, $3, $4, $5) RETURNING id`,
 		name, "channel", ownerID, description, handle)
-	if err := row.Scan(&id); err != nil {
+	if err = row.Scan(&id); err != nil {
 		return nullID, err
 	}
 
-	return id, nil
+	_, err = tx.Exec(ctx, `INSERT INTO users_chats(chat_id, user_id, role) VALUES($1, $2, $3)`, id, ownerID, chatOwner)
+	if err != nil {
+		return nullID, err
+	}
+
+	return id, tx.Commit(ctx)
 }
 
-func (r *Repository) CreatePrivateChannel(ctx context.Context, ownerID int, name, description string) (int, error) {
+func (r *Repository) CreatePrivateChannel(ctx context.Context, ownerID int, name string, description *string) (int, error) {
 
 	var id int
-	row := r.pool.QueryRow(ctx, `INSERT INTO chats(label, type, owner_id, description) VALUES($1, $2, $3, $4) RETURNING id`, name, "channel", ownerID, description)
-	if err := row.Scan(&id); err != nil {
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nullID, err
+	}
+	defer func(tx pgx.Tx, ctx context.Context) {
+		_ = tx.Rollback(ctx)
+	}(tx, ctx)
+
+	row := tx.QueryRow(ctx, `INSERT INTO chats(label, type, owner_id, description) VALUES($1, $2, $3, $4) RETURNING id`, name, "channel", ownerID, description)
+	if err = row.Scan(&id); err != nil {
 		return nullID, err
 	}
 
-	return id, nil
+	_, err = tx.Exec(ctx, `INSERT INTO users_chats(chat_id, user_id, role) VALUES($1, $2, $3)`, id, ownerID, chatOwner)
+	if err != nil {
+		return nullID, err
+	}
+
+	return id, tx.Commit(ctx)
 }
 
 func (r *Repository) ChatExists(ctx context.Context, from int, to int) (int, bool, error) {

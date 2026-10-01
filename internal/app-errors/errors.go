@@ -39,3 +39,9 @@ var ErrNameInUse = errors.New("channel name is already in use")
 var ErrEmptyHandle = errors.New("handle is empty")
 
 var ErrLongHandle = errors.New("handle is too long")
+
+var ErrIncorrectNameLength = errors.New("name length is incorrect")
+
+var ErrIncorrectMembersCount = errors.New("members can`t be less then 2")
+
+var ErrTooLongDescription = errors.New("description is too long")
