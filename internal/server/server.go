@@ -226,11 +226,14 @@ func (s *Server) Chats(c *gin.Context) {
 		return
 	}
 
+	channels, err := s.service.GetChannels(c.Request.Context(), userID.(int))
+
 	online := s.hub.OnlineUsers()
 
 	c.HTML(http.StatusOK, "users.html", gin.H{
 		"Users":     users,
 		"Groups":    groups,
+		"Channels":  channels,
 		"Me":        me.Name,
 		"OnlineIDs": online,
 		"MyID":      me.ID,

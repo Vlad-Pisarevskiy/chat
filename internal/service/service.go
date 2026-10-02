@@ -148,6 +148,11 @@ func (s *Service) GetGroups(ctx context.Context, userID int) ([]model.GroupFromD
 	return s.db.GetGroups(ctx, userID)
 }
 
+func (s *Service) GetChannels(ctx context.Context, userID int) ([]model.ChannelFromDB, error) {
+
+	return s.db.GetChannels(ctx, userID)
+}
+
 func (s *Service) FindUserByID(ctx context.Context, id int) (*model.UserFromDB, error) {
 
 	user, err := s.db.FindUserByID(ctx, id)

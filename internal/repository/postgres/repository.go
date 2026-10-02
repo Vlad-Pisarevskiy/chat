@@ -189,6 +189,27 @@ func (r *Repository) GetGroups(ctx context.Context, userID int) ([]model.GroupFr
 	return groups, nil
 }
 
+func (r *Repository) GetChannels(ctx context.Context, userID int) ([]model.ChannelFromDB, error) {
+
+	rows, err := r.pool.Query(ctx, `SELECT c.id, c.name FROM chats c
+										JOIN users_chats uc ON uc.chat_id = c.id 
+										WHERE c.type = 'channel' AND uc.user_id = $1`, userID)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	channels, err := pgx.CollectRows(rows, pgx.RowToStructByName[model.ChannelFromDB])
+	if err != nil {
+		return nil, err
+	}
+
+	return channels, err
+}
+
 func (r *Repository) CreatePublicChannel(ctx context.Context, ownerID int, name string, description *string, handle string) (int, error) {
 
 	var id int
