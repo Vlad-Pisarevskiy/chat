@@ -239,7 +239,7 @@ func (r *Repository) CreatePublicChannel(ctx context.Context, ownerID int, name 
 		return nullID, err
 	}
 
-	_, err = tx.Exec(ctx, `INSERT INTO users_chats(chat_id, user_id, role) VALUES($1, $2, $3)`, id, ownerID, chatOwner)
+	_, err = tx.Exec(ctx, `INSERT INTO users_chats(chat_id, user_id, role) VALUES($1, $2, $3)`, id, ownerID, ownerRole)
 	if err != nil {
 		return nullID, err
 	}
@@ -264,7 +264,7 @@ func (r *Repository) CreatePrivateChannel(ctx context.Context, ownerID int, name
 		return nullID, err
 	}
 
-	_, err = tx.Exec(ctx, `INSERT INTO users_chats(chat_id, user_id, role) VALUES($1, $2, $3)`, id, ownerID, chatOwner)
+	_, err = tx.Exec(ctx, `INSERT INTO users_chats(chat_id, user_id, role) VALUES($1, $2, $3)`, id, ownerID, ownerRole)
 	if err != nil {
 		return nullID, err
 	}
@@ -453,8 +453,20 @@ func (r *Repository) DeleteChat(ctx context.Context, chatID, userID int) error {
 		}
 		return err
 	}
-	
+
 	_, err = r.pool.Exec(ctx, `DELETE FROM chats WHERE id = $1`, chatID)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *Repository) JoinChannel(ctx context.Context, userID, channelID int) error {
+
+	_, err := r.pool.Exec(ctx, `INSERT INTO users_chats(chat_id, user_id, role) VALUES ($1, $2, $3)`,
+		channelID, userID, memberRole)
+
 	if err != nil {
 		return err
 	}

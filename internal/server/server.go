@@ -70,13 +70,42 @@ func (s *Server) GetRouter() *gin.Engine {
 	{
 		chats.GET("/direct", s.GetPeer)
 		chats.GET("/:chatID/messages", s.LoadMessages)
-		chats.GET("/:chatID/delete", s.DeleteChat)
+		chats.GET("/:chatID/join", s.JoinChannel)
+		chats.POST("/:chatID/delete", s.DeleteChat)
 		chats.POST("/:chatID/messages/delete", s.DeleteMessage)
 		chats.POST("/group", s.CreateGroup)
 		chats.POST("/channels", s.CreateChannel)
 	}
 
 	return r
+}
+
+func (s *Server) JoinChannel(c *gin.Context) {
+
+	userID, ok := c.Get(userIdKey)
+	if !ok {
+		c.Status(http.StatusBadGateway)
+		return
+	}
+
+	channel := c.Param(chatIdKey)
+	channelID, err := strconv.Atoi(channel)
+	if err != nil {
+		c.Status(http.StatusBadRequest)
+		return
+	}
+
+	join := service.JoinChannel{
+		UserID:    userID.(int),
+		ChannelID: channelID,
+	}
+
+	if err = s.service.JoinChannel(c.Request.Context(), join); err != nil {
+		//TODO: статус ошибки
+		return
+	}
+
+	c.Status(http.StatusOK)
 }
 
 func (s *Server) DeleteChat(c *gin.Context) {

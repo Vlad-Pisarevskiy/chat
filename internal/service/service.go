@@ -143,6 +143,11 @@ func (s *Service) CreateChannel(ctx context.Context, ownerID int, channel Channe
 	return s.db.CreatePrivateChannel(ctx, ownerID, channel.Name, channel.Description)
 }
 
+func (s *Service) JoinChannel(ctx context.Context, join JoinChannel) error {
+
+	return s.db.JoinChannel(ctx, join.UserID, join.ChannelID)
+}
+
 func (s *Service) DeleteChat(ctx context.Context, delete ChatDelete) error {
 
 	return s.db.DeleteChat(ctx, delete.ChatID, delete.UserID)

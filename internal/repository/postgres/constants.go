@@ -3,9 +3,9 @@ package postgres
 import "time"
 
 const (
-	chatAdmin  = "admin"
-	chatOwner  = "owner"
-	chatMember = "member"
+	adminRole  = "admin"
+	ownerRole  = "owner"
+	memberRole = "member"
 
 	nullID         = 0
 	tokenTTL       = time.Hour * 24

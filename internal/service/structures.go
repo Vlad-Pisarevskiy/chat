@@ -28,3 +28,8 @@ type MessageDelete struct {
 	ChatID    int `json:"-"`
 	MessageID int `json:"message_id"`
 }
+
+type JoinChannel struct {
+	UserID    int `json:"user_id"`
+	ChannelID int `json:"channel_id"`
+}
