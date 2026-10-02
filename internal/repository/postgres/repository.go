@@ -427,6 +427,41 @@ func (r *Repository) LoadMessages(ctx context.Context, chatID, from int) ([]prot
 	return messages, nil
 }
 
+func (r *Repository) DeleteMessage(ctx context.Context, userID, messageID, chatID int) error {
+
+	_, err := r.pool.Exec(ctx, `DELETE FROM messages WHERE chat_id = $1 AND sender_id = $2 AND id = $3`,
+		chatID, userID, messageID)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *Repository) DeleteChat(ctx context.Context, chatID, userID int) error {
+
+	var id int
+	row, err := r.pool.Query(ctx, `SELECT chat_id FROM users_chats WHERE chat_id = $1 AND user_id = $2`, chatID, userID)
+	if err != nil {
+		return err
+	}
+
+	if err = row.Scan(&id); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errors.New("incorrect chat id")
+		}
+		return err
+	}
+	
+	_, err = r.pool.Exec(ctx, `DELETE FROM chats WHERE id = $1`, chatID)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (r *Repository) DeleteExpiredTokens(ctx context.Context) (int64, error) {
 
 	tag, err := r.pool.Exec(ctx, `DELETE FROM tokens WHERE expires_at < $1`, time.Now())

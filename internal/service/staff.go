@@ -10,24 +10,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-type RegisterInput struct {
-	Name     string
-	Login    string
-	Password string
-}
-
-type GroupCreate struct {
-	OwnerID int    `json:"-"`
-	Name    string `json:"name"`
-	Members []int  `json:"member_ids"`
-}
-
-type ChannelCreates struct {
-	Name        string  `json:"name"`
-	Description *string `json:"description"`
-	Handle      *string `json:"handle"`
-}
-
 func (s *Service) validateRegister(ctx context.Context, user RegisterInput) error {
 
 	if err := correctLogin(user.Login); err != nil {

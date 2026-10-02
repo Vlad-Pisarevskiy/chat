@@ -70,11 +70,87 @@ func (s *Server) GetRouter() *gin.Engine {
 	{
 		chats.GET("/direct", s.GetPeer)
 		chats.GET("/:chatID/messages", s.LoadMessages)
+		chats.GET("/:chatID/delete", s.DeleteChat)
+		chats.POST("/:chatID/messages/delete", s.DeleteMessage)
 		chats.POST("/group", s.CreateGroup)
 		chats.POST("/channels", s.CreateChannel)
 	}
 
 	return r
+}
+
+func (s *Server) DeleteChat(c *gin.Context) {
+
+	userID, ok := c.Get(userIdKey)
+	if !ok {
+		c.Status(http.StatusBadRequest)
+		return
+	}
+
+	chat := c.Query(peerID)
+	if chat == emptyChat {
+		c.Status(http.StatusBadRequest)
+		return
+	}
+
+	chatID, err := strconv.Atoi(chat)
+	if err != nil {
+		c.Status(http.StatusBadGateway)
+		return
+	}
+
+	deleteRequest := service.ChatDelete{
+		UserID: userID.(int),
+		ChatID: chatID,
+	}
+
+	if err = s.service.DeleteChat(c.Request.Context(), deleteRequest); err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	c.Status(http.StatusOK)
+}
+
+func (s *Server) DeleteMessage(c *gin.Context) {
+
+	userID, ok := c.Get(userIdKey)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": errors1.ErrIncorrectData,
+		})
+		return
+	}
+
+	chat := c.Param(peerID)
+	if chat == emptyChat {
+		c.Status(http.StatusBadRequest)
+		return
+	}
+
+	chatID, err := strconv.Atoi(chat)
+	if err != nil {
+		c.Status(http.StatusBadGateway)
+		return
+	}
+
+	var deleteRequest service.MessageDelete
+	if err = c.ShouldBindJSON(&deleteRequest); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": err.Error(),
+		})
+	}
+
+	deleteRequest.ChatID = chatID
+	deleteRequest.UserID = userID.(int)
+
+	if err = s.service.DeleteMessage(c.Request.Context(), deleteRequest); err != nil {
+		//TODO: проверка на тип ошибки
+	}
+
+	c.Status(http.StatusOK)
 }
 
 func (s *Server) CreateGroup(c *gin.Context) {

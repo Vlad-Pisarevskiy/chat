@@ -143,6 +143,16 @@ func (s *Service) CreateChannel(ctx context.Context, ownerID int, channel Channe
 	return s.db.CreatePrivateChannel(ctx, ownerID, channel.Name, channel.Description)
 }
 
+func (s *Service) DeleteChat(ctx context.Context, delete ChatDelete) error {
+
+	return s.db.DeleteChat(ctx, delete.ChatID, delete.UserID)
+}
+
+func (s *Service) DeleteMessage(ctx context.Context, delete MessageDelete) error {
+
+	return s.db.DeleteMessage(ctx, delete.UserID, delete.MessageID, delete.ChatID)
+}
+
 func (s *Service) GetGroups(ctx context.Context, userID int) ([]model.GroupFromDB, error) {
 
 	return s.db.GetGroups(ctx, userID)
