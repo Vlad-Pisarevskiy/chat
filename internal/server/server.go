@@ -70,14 +70,44 @@ func (s *Server) GetRouter() *gin.Engine {
 	{
 		chats.GET("/direct", s.GetPeer)
 		chats.GET("/:chatID/messages", s.LoadMessages)
-		chats.GET("/:chatID/join", s.JoinChannel)
+		chats.POST("/:chatID/join", s.JoinChannel)
 		chats.POST("/:chatID/delete", s.DeleteChat)
+		chats.POST("/:chatID/clear", s.ClearChat)
 		chats.POST("/:chatID/messages/delete", s.DeleteMessage)
 		chats.POST("/group", s.CreateGroup)
 		chats.POST("/channels", s.CreateChannel)
 	}
 
 	return r
+}
+
+func (s *Server) ClearChat(c *gin.Context) {
+
+	userID, ok := c.Get(userIdKey)
+	if !ok {
+		c.Status(http.StatusBadRequest)
+		return
+	}
+
+	chat := c.Param(chatIdKey)
+
+	chatID, err := strconv.Atoi(chat)
+	if err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+
+	lastRead, err := s.service.ClearChat(c.Request.Context(), chatID, userID.(int))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"up_to_message_id": lastRead,
+	})
 }
 
 func (s *Server) JoinChannel(c *gin.Context) {
@@ -116,9 +146,9 @@ func (s *Server) DeleteChat(c *gin.Context) {
 		return
 	}
 
-	chat := c.Query(peerID)
+	chat := c.Param(chatIdKey)
 	if chat == emptyChat {
-		c.Status(http.StatusBadRequest)
+		c.Status(http.StatusNotFound)
 		return
 	}
 
@@ -134,13 +164,16 @@ func (s *Server) DeleteChat(c *gin.Context) {
 	}
 
 	if err = s.service.DeleteChat(c.Request.Context(), deleteRequest); err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{
-			"error": err.Error(),
-		})
+		if errors.Is(err, errors1.ErrWrongChatID) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": err.Error(),
+			})
+		}
+		c.Status(http.StatusBadRequest)
 		return
 	}
 
-	c.Status(http.StatusOK)
+	c.Status(http.StatusNoContent)
 }
 
 func (s *Server) DeleteMessage(c *gin.Context) {

@@ -101,7 +101,7 @@
   #status[data-live] { color: #2e7d4f; }
   #status a { color: #0088b0; }
 
-  #logout {
+  #logout, #delete-chat {
     padding: 6px 12px;
     font: inherit;
     font-size: 14px;
@@ -111,8 +111,9 @@
     border-radius: 2px;
     cursor: pointer;
   }
-  #logout:hover { background: #f7f6f6; }
+  #logout:hover, #delete-chat:hover { background: #f7f6f6; }
   #logout:disabled { color: #6b6867; cursor: default; }
+  #delete-chat { color: #c2334d; }
 
   #messages {
     flex: 1;
@@ -298,6 +299,13 @@
 
   .error { margin: 0 0 12px; font-size: 14px; color: #c2334d; }
 
+  /* Удаление не отменить — подтверждение красное, а не синее, как у создания.
+     Правила стоят ниже button[type="submit"]: специфичность та же, решает порядок. */
+  button.danger { background: #c2334d; }
+  button.danger:disabled { background: #e3a5b0; }
+
+  .dialog-text { margin: 0 0 12px; font-size: 14px; color: #6b6867; }
+
   #toast {
     position: fixed;
     left: 50%;
@@ -395,6 +403,7 @@
 <section class="chat">
   <header>
     <h2 id="peer">Выберите чат</h2>
+    <button type="button" id="delete-chat" hidden>Удалить переписку</button>
     <span id="status">соединение…</span>
     <button type="button" id="logout">Выйти из аккаунта</button>
   </header>
@@ -482,6 +491,31 @@
   </form>
 </dialog>
 
+<dialog id="delete-dialog">
+  <!-- Одна кнопка и галочка, как в Телеграме: галочка выбирает ручку — clear
+       (у себя) или delete (у обоих). Имя собеседника в текст не подставляем:
+       имена не склоняются, и «у Аня» читалось бы как ошибка. -->
+  <form id="delete-form">
+    <section>
+      <h2>Удалить переписку?</h2>
+
+      <p class="dialog-text" id="delete-text"></p>
+
+      <label class="toggle">
+        <input id="delete-for-both" type="checkbox">
+        Удалить и у собеседника
+      </label>
+
+      <p class="error" id="delete-error" hidden></p>
+
+      <p class="actions">
+        <button type="button" class="ghost" id="cancel-delete">Отмена</button>
+        <button type="submit" class="danger" id="confirm-delete">Удалить</button>
+      </p>
+    </section>
+  </form>
+</dialog>
+
 <p id="toast" hidden></p>
 
 <script>
@@ -499,6 +533,7 @@ const textEl = document.getElementById("text");
 const peerEl = document.getElementById("peer");
 const statusEl = document.getElementById("status");
 const logoutEl = document.getElementById("logout");
+const deleteChatEl = document.getElementById("delete-chat");
 
 // Ключ диалога: "u:<id пользователя>" для лички, "g:<id чата>" для группы,
 // "c:<id чата>" для канала.
@@ -521,6 +556,31 @@ const pending = new Map();
 // Серверные id всего, что уже нарисовано: по ним отбрасываются дубли между
 // историей, эхом собственного сообщения и ack.
 const seenMessageIds = new Set();
+
+// Чаты, удалённые у обоих. Ответ на delete приходит по HTTP, а сообщения и ack —
+// по сокету, и порядок между ними не гарантирован: отправленное до удаления
+// может прийти после него и воскресить чат в ленте. id чатов не
+// переиспользуются, поэтому всё, что адресовано этим чатам, просто выбрасываем.
+const removedChats = new Set();
+
+// История грузится пачками: сначала самые свежие, при прокрутке вверх — всё
+// более старые (docs/api.md, GET /chats/{chatID}/messages).
+//
+// 50, а не 10: первая пачка должна заполнить экран. Иначе не будет полосы
+// прокрутки, листать вверх станет нечем, и следующая пачка не придёт никогда.
+const PAGE_SIZE = 50;
+
+// За сколько пикселей до верха просить следующую пачку: с запасом, чтобы она
+// успела прийти раньше, чем пользователь упрётся в край ленты.
+const NEAR_TOP = 200;
+
+// Ключ -> состояние подгрузки истории этого диалога:
+//   ready   — первая пачка пришла; до неё неоткуда взять курсор;
+//   loading — пачка в пути, вторую параллельно не шлём;
+//   done    — дошли до начала переписки, больше не спрашиваем;
+//   retryAt — после ошибки не повторяем раньше этого момента: scroll приходит
+//             десятки раз в секунду, и каждый породил бы по запросу.
+const paging = new Map();
 
 let currentKey = null;
 let currentChatId = null;
@@ -584,6 +644,7 @@ async function openConversation(key, name, chatId) {
   peerEl.textContent = name;
 
   markActive(key);
+  syncDeleteButton();
 
   placeholderEl.hidden = true;
   messagesEl.hidden = false;
@@ -594,7 +655,10 @@ async function openConversation(key, name, chatId) {
   formEl.hidden = readOnly;
   textEl.placeholder = isChannel(key) ? "Новый пост" : "Сообщение";
 
-  messagesEl.replaceChildren();
+  // Сразу рисуем то, что уже есть в памяти вкладки, а не пустую ленту: свежая
+  // пачка только доклеится к этому. Пустая лента к тому же сбросила бы прокрутку
+  // в ноль, и scroll попросил бы старую пачку, хотя вверх никто не листал.
+  renderHistory(key);
   if (!readOnly) textEl.focus();
 
   if (chatId === null) {
@@ -698,6 +762,9 @@ async function resolveChat(key) {
 function bindChat(chatId, key) {
   chatIdByKey.set(key, chatId);
   keyByChat.set(chatId, key);
+  // У открытой лички чат мог появиться только что — из поиска или из ack, — и
+  // вместе с ним появляется что удалять.
+  syncDeleteButton();
 }
 
 // --- лента ---
@@ -747,6 +814,12 @@ function scrollDown() {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
+// «Почти внизу», с запасом: дробная высота строк не даёт прокрутке встать
+// ровно в ноль, а сдвиг на пол-реплики — ещё не «ушёл читать историю».
+function nearBottom() {
+  return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 80;
+}
+
 function renderHistory(key) {
   messagesEl.replaceChildren();
   for (const message of history.get(key) || []) {
@@ -760,8 +833,11 @@ function push(key, message) {
   history.get(key).push(message);
 
   if (key === currentKey) {
+    // Кто ушёл вверх читать старую историю, того новое сообщение вниз не тащит.
+    // Своё — тащит: человек только что нажал «Отправить» и ждёт его увидеть.
+    const stick = message.kind === "mine" || nearBottom();
     messagesEl.append(bubble(message));
-    scrollDown();
+    if (stick) scrollDown();
     return;
   }
 
@@ -849,9 +925,13 @@ function receive(raw) {
   else if (frame.type === "ack") onAck(payload);
   else if (frame.type === "presence") onPresence(payload);
   else if (frame.type === "error") note(payload.description || "ошибка сервера");
+  else if (frame.type === "chat_removed") removeChat(payload.chat_id);
+  else if (frame.type === "chat_cleared") clearChat(payload.chat_id, Number(payload.up_to_message_id));
 }
 
 function onMessage(payload) {
+  if (removedChats.has(payload.chat_id)) return;
+
   // Своё сообщение приходит дважды: как ack на этом соединении и как message
   // (сервер рассылает всем участникам чата, отправитель — тоже участник).
   // Дедуплицируем по серверному id, он единственный общий для обеих копий.
@@ -895,7 +975,7 @@ function onAck(payload) {
   // заполняет chat_id в ack, и оттуда приходит ноль. Связаться по нулю значит
   // отправлять следующие сообщения с chat_id: 0, а такой кадр сервер молча
   // выбрасывает — вся переписка обрывалась бы после первой реплики.
-  if (payload.chat_id > 0 && chatIdByKey.get(message.key) === undefined) {
+  if (payload.chat_id > 0 && chatIdByKey.get(message.key) === undefined && !removedChats.has(payload.chat_id)) {
     bindChat(payload.chat_id, message.key);
     if (currentKey === message.key) currentChatId = payload.chat_id;
   }
@@ -996,50 +1076,168 @@ logoutEl.addEventListener("click", async () => {
   location.replace("/login");
 });
 
-// История сообщений
+// --- история ---
+
+// Сервер между запросами ничего не помнит: докуда загружено, знает только
+// вкладка, и в каждый запрос это уходит одним числом — before.
+async function fetchPage(chatId, before) {
+  const params = new URLSearchParams({ limit: PAGE_SIZE });
+  if (before !== undefined) params.set("before", before);
+
+  const response = await fetch("/chats/" + chatId + "/messages?" + params);
+  if (!response.ok) throw new Error("история: " + response.status);
+
+  // По контракту пустой чат — [], но null пока не исключён (docs/api.md,
+  // раздел 6), и уронить из-за него ленту было бы обидно.
+  return (await response.json()) || [];
+}
+
+function pageState(key) {
+  if (!paging.has(key)) paging.set(key, { ready: false, loading: false, done: false, retryAt: 0 });
+  return paging.get(key);
+}
+
+// Элемент истории в реплику ленты. Форма у него та же, что у кадра message.
+function toEntry(key, message) {
+  // Тот же id, что и в live-потоке: сообщение, пришедшее между запросом
+  // истории и её отрисовкой, придёт дважды и будет отброшено по нему.
+  seenMessageIds.add(message.message_id);
+
+  const mine = Number(message.sender_id) === Number(myUserId);
+
+  return {
+    id: message.message_id,
+    kind: mine ? "mine" : "theirs",
+    text: message.body,
+    at: message.time,
+    author: authorFor(key, message.sender_id, mine),
+  };
+}
+
+// Курсор — самое старое сообщение, которое уже есть в ленте. Отдельно его не
+// храним: лента и так единственное место, где видно, докуда загружено.
+function oldestId(key) {
+  let oldest = null;
+  for (const message of history.get(key) || []) {
+    if (message.id !== undefined && (oldest === null || message.id < oldest)) oldest = message.id;
+  }
+  return oldest;
+}
+
+// Самая свежая пачка: с неё открывается диалог, и она же перезапрашивается при
+// каждом повторном открытии.
 async function loadMessages(chatId, key) {
+  let page;
   try {
-    const response = await fetch("/chats/" + chatId + "/messages");
-
-    if (!response.ok) {
-      throw new Error("Не удалось загрузить сообщения");
-    }
-
-    const messages = await response.json();
-
-    const loaded = messages.map((message) => {
-      // Тот же id, что и в live-потоке: сообщение, пришедшее между запросом
-      // истории и её отрисовкой, придёт дважды и будет отброшено по нему.
-      seenMessageIds.add(message.message_id);
-
-      const mine = Number(message.sender_id) === Number(myUserId);
-
-      return {
-        id: message.message_id,
-        kind: mine ? "mine" : "theirs",
-        text: message.body,
-        at: message.time,
-        author: authorFor(key, message.sender_id, mine),
-      };
-    });
-
-    // Историю склеиваем с тем, что уже накопилось в ленте, а не заменяем ею.
-    // Замена теряла бы сообщения, пришедшие живым потоком после того, как сервер
-    // собрал ответ, — а также ещё не подтверждённые свои реплики и заметки.
-    const loadedIds = new Set(messages.map((message) => message.message_id));
-    const kept = (history.get(key) || []).filter(
-      (message) => message.id === undefined || !loadedIds.has(message.id));
-
-    history.set(key, loaded.concat(kept));
-
-    if (currentKey !== key) return;
-
-    renderHistory(key);
-
+    page = await fetchPage(chatId);
   } catch (err) {
     console.error(err);
+    return;
   }
+
+  const state = pageState(key);
+  state.ready = true;
+  if (page.length < PAGE_SIZE) state.done = true;
+
+  history.set(key, mergeById(history.get(key) || [], page.map((message) => toEntry(key, message))));
+
+  if (currentKey !== key) return;
+
+  renderHistory(key);
+  // Экран мог оказаться выше пачки — тогда прокрутки нет, и просить следующую
+  // некому. Проверяем сами.
+  maybeLoadOlder();
 }
+
+// Свежую пачку склеиваем с тем, что уже лежит в ленте, а не заменяем ею. Замена
+// теряла бы сообщения, пришедшие живым потоком после того, как сервер собрал
+// ответ, ещё не подтверждённые свои реплики, заметки — и старые пачки,
+// догруженные прокруткой при прошлом открытии диалога.
+function mergeById(existing, loaded) {
+  const byId = new Map();
+  for (const message of loaded) byId.set(message.id, message);
+  // Уже лежащую в ленте реплику пачка не перезаписывает: это то же сообщение.
+  for (const message of existing) {
+    if (message.id !== undefined) byId.set(message.id, message);
+  }
+
+  const withId = Array.from(byId.values()).sort((a, b) => a.id - b.id);
+  // Без id — неподтверждённые свои реплики и заметки. Им место внизу, у самых
+  // свежих сообщений.
+  const withoutId = existing.filter((message) => message.id === undefined);
+  return withId.concat(withoutId);
+}
+
+// Пачка старше самого раннего сообщения в ленте — для прокрутки вверх.
+async function loadOlder(key) {
+  const state = pageState(key);
+  if (!state.ready || state.loading || state.done || Date.now() < state.retryAt) return;
+
+  const chatId = chatIdByKey.get(key);
+  const cursor = oldestId(key);
+  if (chatId === undefined || cursor === null) {
+    state.done = true;
+    return;
+  }
+
+  state.loading = true;
+
+  let page;
+  try {
+    page = await fetchPage(chatId, cursor);
+  } catch (err) {
+    console.error(err);
+    state.retryAt = Date.now() + 3000;
+    return;
+  } finally {
+    state.loading = false;
+  }
+
+  // Ленту могли дополнить, пока шёл запрос, — сверяемся с ней уже после ответа.
+  const known = new Set((history.get(key) || []).map((message) => message.id));
+  const older = page
+    .filter((message) => message.message_id < cursor && !known.has(message.message_id))
+    .sort((a, b) => a.message_id - b.message_id)
+    .map((message) => toEntry(key, message));
+
+  // Короткая пачка — дошли до начала. Пачка без единого более старого
+  // сообщения — тоже конец: так ведёт себя и сервер, который before ещё не
+  // понимает и каждый раз отдаёт одно и то же. Без этой проверки прокрутка у
+  // верха слала бы запрос за запросом.
+  if (page.length < PAGE_SIZE || older.length === 0) state.done = true;
+
+  // Всё в older старше всего, что уже есть, поэтому место ему — в начале.
+  history.set(key, older.concat(history.get(key) || []));
+
+  if (currentKey !== key) return;
+
+  if (older.length > 0) prependBubbles(older);
+  // Пачка могла снова не заполнить экран.
+  maybeLoadOlder();
+}
+
+// Вставка сверху сдвинула бы ленту под пользователем: всё, что он читал,
+// уехало бы вниз на высоту новой пачки. Возвращаем прокрутку на ту же реплику.
+function prependBubbles(messages) {
+  const top = messagesEl.scrollTop;
+  const height = messagesEl.scrollHeight;
+
+  messagesEl.prepend(...messages.map(bubble));
+
+  // Присваиваем, а не прибавляем: браузер с якорной прокруткой (overflow-anchor)
+  // мог уже сдвинуть ленту сам, и прибавка сдвинула бы её второй раз.
+  messagesEl.scrollTop = top + (messagesEl.scrollHeight - height);
+}
+
+// Метка-элемент с IntersectionObserver тут не подошла бы: если после пачки
+// экран всё ещё не заполнен, метка так и остаётся видимой, и observer второй
+// раз не сработает — проверять пришлось бы руками. А с ручной проверкой
+// observer уже лишний: хватает scroll и одного сравнения.
+function maybeLoadOlder() {
+  if (currentKey && messagesEl.scrollTop < NEAR_TOP) loadOlder(currentKey);
+}
+
+messagesEl.addEventListener("scroll", maybeLoadOlder, { passive: true });
 
 // --- создание группы ---
 
@@ -1442,6 +1640,168 @@ function failCreateChannel(errorEl, text) {
   creatingChannel = false;
   showError(errorEl, text);
   createChannelEl.disabled = false;
+}
+
+// --- удаление переписки ---
+
+const deleteDialogEl = document.getElementById("delete-dialog");
+const deleteFormEl = document.getElementById("delete-form");
+const deleteTextEl = document.getElementById("delete-text");
+const deleteForBothEl = document.getElementById("delete-for-both");
+const deleteErrorEl = document.getElementById("delete-error");
+const cancelDeleteEl = document.getElementById("cancel-delete");
+const confirmDeleteEl = document.getElementById("confirm-delete");
+
+// Чат запоминаем на открытии окна, а дальше работаем только по id: пока идёт
+// запрос, окно можно закрыть по Esc и уйти в другой диалог.
+let deleteChatId = null;
+let deleting = false;
+
+// Только в личке и только когда чат уже есть. Группам и каналам эти ручки
+// отвечают 400 (docs/api.md), а у лички без чата удалять нечего.
+function syncDeleteButton() {
+  deleteChatEl.hidden = !(currentKey && !isGroup(currentKey) && !isChannel(currentKey) && chatIdByKey.has(currentKey));
+}
+
+deleteChatEl.addEventListener("click", () => {
+  const chatId = chatIdByKey.get(currentKey);
+  if (chatId === undefined) return;
+  deleteChatId = chatId;
+
+  // Сброс на открытии, как у окон группы и канала. Галочка всегда снята:
+  // необратимое «у обоих» должно быть выбором, а не тем, что осталось с
+  // прошлого раза.
+  deleteForBothEl.checked = false;
+  syncDeleteText();
+  hideError(deleteErrorEl);
+  confirmDeleteEl.disabled = deleting;
+
+  deleteDialogEl.showModal();
+});
+
+cancelDeleteEl.addEventListener("click", () => deleteDialogEl.close());
+
+deleteForBothEl.addEventListener("change", syncDeleteText);
+
+// Чем отличаются варианты, пишем прямо в окне: по одной галочке не понять,
+// что без неё у собеседника всё останется.
+function syncDeleteText() {
+  deleteTextEl.textContent = deleteForBothEl.checked
+    ? "Переписка исчезнет у вас обоих. Отменить это нельзя."
+    : "Сообщения исчезнут только у вас, у собеседника переписка останется.";
+}
+
+deleteFormEl.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  // Флаг, а не вид кнопки — как у создания группы: Enter отправляет форму и мимо неё.
+  if (deleting) return;
+
+  const chatId = deleteChatId;
+  const forBoth = deleteForBothEl.checked;
+
+  hideError(deleteErrorEl);
+  deleting = true;
+  confirmDeleteEl.disabled = true;
+
+  let response = null;
+  try {
+    response = await fetch("/chats/" + chatId + (forBoth ? "/delete" : "/clear"), { method: "POST" });
+  } catch (err) {
+    console.error(err);
+    failDelete("Нет связи с сервером");
+    return;
+  }
+
+  // 404 — чата уже нет: собеседник успел удалить его у обоих. Чего бы мы ни
+  // хотели, итог тот же, что после delete, — так и показываем.
+  if (response.status === 404) {
+    finishDelete();
+    removeChat(chatId);
+    return;
+  }
+
+  if (!response.ok) {
+    failDelete("Не удалось удалить переписку (" + response.status + ")");
+    return;
+  }
+
+  finishDelete();
+
+  if (forBoth) {
+    removeChat(chatId);
+    return;
+  }
+
+  const payload = await response.json().catch(() => null);
+  clearChat(chatId, payload ? Number(payload.up_to_message_id) : NaN);
+});
+
+function finishDelete() {
+  deleting = false;
+  confirmDeleteEl.disabled = false;
+  deleteDialogEl.close();
+}
+
+// Окно не закрываем: человек решил удалить, и повторить ему проще отсюда.
+function failDelete(text) {
+  deleting = false;
+  showError(deleteErrorEl, text);
+  confirmDeleteEl.disabled = false;
+}
+
+// Чат удалён у обоих: ответ на свой delete или кадр chat_removed — с этого
+// устройства, с другого или от собеседника. На своё удаление приходят и ответ,
+// и кадр, поэтому второй вызов ничего не делает.
+function removeChat(chatId) {
+  const key = keyByChat.get(chatId);
+  if (key === undefined) return;
+
+  removedChats.add(chatId);
+
+  // Связку забываем: следующее сообщение собеседнику уйдёт по peer_id и заведёт
+  // новый чат, а подгрузка истории для него начнётся с чистого листа.
+  chatIdByKey.delete(key);
+  keyByChat.delete(chatId);
+  paging.delete(key);
+  history.set(key, []);
+
+  const button = itemByKey(key);
+  if (button) button.querySelector(".unread").hidden = true;
+
+  if (currentKey !== key) return;
+
+  currentChatId = null;
+  syncDeleteButton();
+  renderHistory(key);
+  note("Переписка удалена");
+}
+
+// История очищена у меня: ответ на свой clear или кадр chat_cleared с другого
+// моего устройства. Собеседника это не касается, чат остаётся тем же.
+function clearChat(chatId, upTo) {
+  const key = keyByChat.get(chatId);
+  if (key === undefined) return;
+
+  // Без границы стираем всё подтверждённое. Лучше на время потерять с экрана
+  // сообщение, пришедшее в момент очистки (оно вернётся со свежей пачкой при
+  // следующем открытии), чем оставить то, что сервер уже стёр.
+  if (!Number.isFinite(upTo)) upTo = Infinity;
+
+  // Ровно то, что стёр сервер: всё новее границы остаётся. Неподтверждённые
+  // свои — тоже, они новее всего. Заметки уходят вместе со старой историей, к
+  // которой относились. Заодно это делает повторный вызов безвредным: на свой
+  // clear приходят и ответ, и кадр, а заметка останется одна.
+  history.set(key, (history.get(key) || []).filter(
+    (message) => message.id === undefined ? message.state === "sending" : message.id > upTo));
+
+  const button = itemByKey(key);
+  if (button) button.querySelector(".unread").hidden = true;
+
+  if (currentKey !== key) return;
+
+  renderHistory(key);
+  note("История очищена");
 }
 </script>
 

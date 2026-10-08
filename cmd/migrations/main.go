@@ -7,6 +7,7 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func main() {
@@ -26,6 +27,20 @@ func main() {
 	}
 	if err = goose.Up(db, "./migrations"); err != nil {
 		log.Fatal(err)
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte("123"), bcrypt.DefaultCost)
+	if err != nil {
+		log.Println(err)
+	}
+
+	_, err = db.Exec(`INSERT INTO users(name, login, password)
+				   VALUES ('Пользователь1', 'user1', $1),
+				          ('Пользователь2', 'user2', $1),
+				          ('Пользователь3', 'user3', $1)`, hash)
+
+	if err != nil {
+		log.Println(err)
 	}
 }
 

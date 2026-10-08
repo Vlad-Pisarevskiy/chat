@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -173,7 +174,7 @@ func (r *Repository) GetUsers(ctx context.Context) ([]*model.UserFromDB, error) 
 
 func (r *Repository) GetGroups(ctx context.Context, userID int) ([]model.GroupFromDB, error) {
 
-	rows, err := r.pool.Query(ctx, `SELECT c.id, c.label FROM chats c 
+	rows, err := r.pool.Query(ctx, `SELECT c.id, c.name FROM chats c 
 										JOIN users_chats uc ON uc.chat_id = c.id 
 										WHERE c.type = 'group' AND uc.user_id = $1`, userID)
 	if err != nil {
@@ -233,7 +234,7 @@ func (r *Repository) CreatePublicChannel(ctx context.Context, ownerID int, name 
 		return nullID, errors1.ErrNameInUse
 	}
 
-	row = tx.QueryRow(ctx, `INSERT INTO chats(label, type, owner_id, description, handle) VALUES($1, $2, $3, $4, $5) RETURNING id`,
+	row = tx.QueryRow(ctx, `INSERT INTO chats(name, type, owner_id, description, handle) VALUES($1, $2, $3, $4, $5) RETURNING id`,
 		name, "channel", ownerID, description, handle)
 	if err = row.Scan(&id); err != nil {
 		return nullID, err
@@ -250,7 +251,6 @@ func (r *Repository) CreatePublicChannel(ctx context.Context, ownerID int, name 
 func (r *Repository) CreatePrivateChannel(ctx context.Context, ownerID int, name string, description *string) (int, error) {
 
 	var id int
-
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nullID, err
@@ -259,7 +259,7 @@ func (r *Repository) CreatePrivateChannel(ctx context.Context, ownerID int, name
 		_ = tx.Rollback(ctx)
 	}(tx, ctx)
 
-	row := tx.QueryRow(ctx, `INSERT INTO chats(label, type, owner_id, description) VALUES($1, $2, $3, $4) RETURNING id`, name, "channel", ownerID, description)
+	row := tx.QueryRow(ctx, `INSERT INTO chats(name, type, owner_id, description) VALUES($1, $2, $3, $4) RETURNING id`, name, "channel", ownerID, description)
 	if err = row.Scan(&id); err != nil {
 		return nullID, err
 	}
@@ -319,7 +319,7 @@ func (r *Repository) StartChat(ctx context.Context, from, to int) (int, error) {
 
 func (r *Repository) SendMessage(ctx context.Context, send protocol.Send, from int) (*protocol.Message, []int, error) {
 
-	row := r.pool.QueryRow(ctx, `INSERT INTO messages (chat_id, sender_id, client_msg_id, data, created_at)
+	row := r.pool.QueryRow(ctx, `INSERT INTO messages (chat_id, sender_id, client_msg_id, body, created_at)
 		SELECT $1, $2, $3, $4, now()
 		WHERE EXISTS (SELECT 1 FROM users_chats WHERE chat_id = $1 AND user_id = $2)
 		RETURNING id, created_at`,
@@ -335,6 +335,9 @@ func (r *Repository) SendMessage(ctx context.Context, send protocol.Send, from i
 	msg.ChatID = send.ChatID
 	msg.SenderID = from
 	msg.Body = send.Body
+
+	_, err := r.pool.Exec(ctx, `UPDATE users_chats SET last_read = $1
+									WHERE chat_id = $2 AND user_id = $3`, msg.Id, msg.ChatID, msg.SenderID)
 
 	rows, err := r.pool.Query(ctx, `SELECT user_id FROM users_chats WHERE chat_id = $1`, send.ChatID)
 	if err != nil {
@@ -371,7 +374,7 @@ func (r *Repository) CreateGroup(ctx context.Context, name string, members []int
 	}
 
 	var chatID int
-	row = tx.QueryRow(ctx, `INSERT INTO chats(label, type) VALUES($1, 'group') RETURNING id`, name)
+	row = tx.QueryRow(ctx, `INSERT INTO chats(name, type) VALUES($1, 'group') RETURNING id`, name)
 	if err := row.Scan(&chatID); err != nil {
 		return nullID, err
 	}
@@ -389,15 +392,17 @@ func (r *Repository) CreateGroup(ctx context.Context, name string, members []int
 func (r *Repository) LoadMessages(ctx context.Context, chatID, from int) ([]protocol.Message, error) {
 
 	var messages []protocol.Message
+	var messageIDs []int
 	rows, err := r.pool.Query(ctx,
 		`SELECT
     			m.id,
     			m.chat_id,
 				m.sender_id,
-				m.data,
+				m.body,
 				m.created_at
 			 FROM messages m
-			 WHERE m.chat_id = $1 AND EXISTS (SELECT 1 FROM users_chats WHERE chat_id = $1 AND user_id = $2)
+			 JOIN users_chats uc ON uc.chat_id = m.chat_id
+			 WHERE m.chat_id = $1 AND m.id > uc.border AND uc.user_id = $2 AND EXISTS (SELECT 1 FROM users_chats WHERE chat_id = $1 AND user_id = $2)
 			 ORDER BY m.created_at, m.id;
 			`, chatID, from)
 
@@ -418,13 +423,40 @@ func (r *Repository) LoadMessages(ctx context.Context, chatID, from int) ([]prot
 		}
 
 		messages = append(messages, message)
+		messageIDs = append(messageIDs, message.Id)
 	}
 
 	if err = rows.Err(); err != nil {
 		return nil, err
 	}
 
+	_, err = r.pool.Exec(ctx, `UPDATE users_chats
+								   SET last_read = $1
+								   WHERE chat_id=$2 AND user_id = $3`, slices.Max(messageIDs), chatID, from)
+
+	if err != nil {
+		return messages, err
+	}
+
 	return messages, nil
+}
+
+func (r *Repository) ClearChat(ctx context.Context, chatID, userID int) (int, error) {
+
+	var lastRead int
+	row := r.pool.QueryRow(ctx, `SELECT last_read FROM users_chats
+									 WHERE chat_id = $1 AND user_id = $2`, chatID, userID)
+	if err := row.Scan(&lastRead); err != nil {
+		return nullID, err
+	}
+
+	_, err := r.pool.Exec(ctx, `UPDATE users_chats SET last_read = null, border = $1
+									WHERE chat_id = $2 AND user_id = $3`, lastRead, chatID, userID)
+	if err != nil {
+		return nullID, err
+	}
+
+	return lastRead, nil
 }
 
 func (r *Repository) DeleteMessage(ctx context.Context, userID, messageID, chatID int) error {
@@ -442,19 +474,17 @@ func (r *Repository) DeleteMessage(ctx context.Context, userID, messageID, chatI
 func (r *Repository) DeleteChat(ctx context.Context, chatID, userID int) error {
 
 	var id int
-	row, err := r.pool.Query(ctx, `SELECT chat_id FROM users_chats WHERE chat_id = $1 AND user_id = $2`, chatID, userID)
-	if err != nil {
-		return err
-	}
+	row := r.pool.QueryRow(ctx, `SELECT chat_id FROM users_chats uc JOIN chats c ON uc.chat_id = c.id	 
+               					     WHERE chat_id = $1 AND user_id = $2 AND c.type = 'direct'`, chatID, userID)
 
-	if err = row.Scan(&id); err != nil {
+	if err := row.Scan(&id); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return errors.New("incorrect chat id")
+			return errors1.ErrWrongChatID
 		}
 		return err
 	}
 
-	_, err = r.pool.Exec(ctx, `DELETE FROM chats WHERE id = $1`, chatID)
+	_, err := r.pool.Exec(ctx, `DELETE FROM chats WHERE id = $1`, id)
 	if err != nil {
 		return err
 	}

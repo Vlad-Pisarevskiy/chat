@@ -189,6 +189,11 @@ func (s *Service) GetUsersExcept(ctx context.Context, id int) ([]*model.UserFrom
 	return s.db.GetUsersExcept(ctx, id)
 }
 
+func (s *Service) ClearChat(ctx context.Context, chatID, userID int) (int, error) {
+
+	return s.db.ClearChat(ctx, chatID, userID)
+}
+
 func (s *Service) GetOrCreateChat(ctx context.Context, peerID, sender int) (int, error) {
 
 	chatID, ok, err := s.db.ChatExists(ctx, sender, peerID)

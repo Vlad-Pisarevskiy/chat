@@ -45,3 +45,5 @@ var ErrIncorrectNameLength = errors.New("name length is incorrect")
 var ErrIncorrectMembersCount = errors.New("members can`t be less then 2")
 
 var ErrTooLongDescription = errors.New("description is too long")
+
+var ErrWrongChatID = errors.New("incorrect chat id")
