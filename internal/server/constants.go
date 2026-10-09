@@ -18,12 +18,14 @@ const (
 	messageType    = "message"
 	peerID         = "peer_id"
 	userIdKey      = "userID"
+	handleKey      = "handle"
 	chatIdKey      = "chatID"
 	tokenKey       = "token"
 	sendType       = "send"
 	ackType        = "ack"
 	emptyMessageID = ""
-	emptyPeer      = ""
-	emptyChat      = ""
-	nullID         = 0
+	emptyHandle
+	emptyPeer = ""
+	emptyChat = ""
+	nullID    = 0
 )

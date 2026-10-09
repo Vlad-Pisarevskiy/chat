@@ -5,6 +5,7 @@ import (
 	"chatflow/internal/hub"
 	"chatflow/internal/protocol"
 	"chatflow/internal/service"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -70,15 +71,43 @@ func (s *Server) GetRouter() *gin.Engine {
 	{
 		chats.GET("/direct", s.GetPeer)
 		chats.GET("/:chatID/messages", s.LoadMessages)
+		chats.GET("/channels/", s.GetChannel)
+
 		chats.POST("/:chatID/join", s.JoinChannel)
 		chats.POST("/:chatID/delete", s.DeleteChat)
 		chats.POST("/:chatID/clear", s.ClearChat)
+
 		chats.POST("/:chatID/messages/delete", s.DeleteMessage)
 		chats.POST("/group", s.CreateGroup)
 		chats.POST("/channels", s.CreateChannel)
 	}
 
 	return r
+}
+
+func (s *Server) GetChannel(c *gin.Context) {
+
+	handle := c.Query(handleKey)
+	if handle == emptyHandle {
+		c.Status(http.StatusNotFound)
+		return
+	}
+
+	channel, err := s.service.GetChannel(c.Request.Context(), handle)
+	if err != nil {
+		if errors.Is(err, errors1.ErrIncorrectHandle) {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		c.Status(http.StatusBadGateway)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"chat_id":     channel.ID,
+		"name":        channel.Name,
+		"description": channel.Description,
+	})
 }
 
 func (s *Server) ClearChat(c *gin.Context) {
@@ -103,6 +132,12 @@ func (s *Server) ClearChat(c *gin.Context) {
 			"error": err.Error(),
 		})
 		return
+	}
+
+	if err = s.SendCleared(userID.(int), chatID, lastRead); err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": err.Error(),
+		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -158,6 +193,12 @@ func (s *Server) DeleteChat(c *gin.Context) {
 		return
 	}
 
+	secondUserID, err := s.service.GetSecondMember(c.Request.Context(), userID.(int), chatID)
+	if err != nil {
+		c.Status(http.StatusBadGateway)
+		return
+	}
+
 	deleteRequest := service.ChatDelete{
 		UserID: userID.(int),
 		ChatID: chatID,
@@ -171,6 +212,12 @@ func (s *Server) DeleteChat(c *gin.Context) {
 		}
 		c.Status(http.StatusBadRequest)
 		return
+	}
+
+	if err = s.SendDeleted(userID.(int), secondUserID, chatID); err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": err.Error(),
+		})
 	}
 
 	c.Status(http.StatusNoContent)
@@ -554,4 +601,44 @@ func (s *Server) pageAuthorization() gin.HandlerFunc {
 		c.Set(userIdKey, id)
 		c.Next()
 	}
+}
+
+func (s *Server) SendDeleted(userID, secondUserID, chatID int) error {
+
+	removed := protocol.Removed{ChatID: chatID}
+	payload, err := json.Marshal(removed)
+	if err != nil {
+		return err
+	}
+
+	data := &protocol.Data{
+		Type:    "chat_removed",
+		Payload: payload,
+	}
+
+	s.hub.Send([]int{userID, secondUserID}, data)
+
+	return nil
+}
+
+func (s *Server) SendCleared(userID, chatID, upToMessage int) error {
+
+	cleared := protocol.Cleared{
+		ChatID:        chatID,
+		UpToMessageID: upToMessage,
+	}
+
+	payload, err := json.Marshal(cleared)
+	if err != nil {
+		return err
+	}
+
+	data := &protocol.Data{
+		Type:    "chat_cleared",
+		Payload: payload,
+	}
+
+	s.hub.Send([]int{userID}, data)
+
+	return nil
 }

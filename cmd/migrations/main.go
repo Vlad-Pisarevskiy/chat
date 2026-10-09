@@ -39,6 +39,9 @@ func main() {
 				          ('Пользователь2', 'user2', $1),
 				          ('Пользователь3', 'user3', $1)`, hash)
 
+	_, err = db.Exec(`INSERT INTO chats(name, type, owner_id, handle, description)
+				   VALUES ('Новостной канал', 'channel', 1, 'team_news', 'новостной канал')`)
+
 	if err != nil {
 		log.Println(err)
 	}

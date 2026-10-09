@@ -120,6 +120,18 @@ func (r *Repository) AddToken(ctx context.Context, userID int, token []byte) err
 	return nil
 }
 
+func (r *Repository) GetSecondMember(ctx context.Context, userID int, chatID int) (int, error) {
+
+	var id int
+	row := r.pool.QueryRow(ctx, `SELECT user_id FROM users_chats WHERE chat_id = $1 AND user_id <> $2`, chatID, userID)
+
+	if err := row.Scan(&id); err != nil {
+		return nullID, err
+	}
+
+	return id, nil
+}
+
 func (r *Repository) CheckToken(ctx context.Context, token []byte) (userID int, err error) {
 
 	row := r.pool.QueryRow(ctx, "SELECT user_id FROM tokens WHERE token_hash=($1) AND expires_at>$2", token, time.Now())
@@ -270,6 +282,21 @@ func (r *Repository) CreatePrivateChannel(ctx context.Context, ownerID int, name
 	}
 
 	return id, tx.Commit(ctx)
+}
+
+func (r *Repository) GetChannel(ctx context.Context, handle string) (*model.ChannelFromDB, error) {
+
+	var ch model.ChannelFromDB
+	row := r.pool.QueryRow(ctx, `SELECT id, name, description FROM chats WHERE handle = $1`, handle)
+
+	if err := row.Scan(&ch.ID, &ch.Name, &ch.Description); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, errors1.ErrIncorrectHandle
+		}
+		return nil, err
+	}
+
+	return &ch, nil
 }
 
 func (r *Repository) ChatExists(ctx context.Context, from int, to int) (int, bool, error) {

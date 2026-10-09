@@ -33,3 +33,9 @@ type JoinChannel struct {
 	UserID    int `json:"user_id"`
 	ChannelID int `json:"channel_id"`
 }
+
+type ChannelFromDB struct {
+	chatID      int
+	name        string
+	description string
+}

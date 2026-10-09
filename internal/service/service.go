@@ -189,6 +189,11 @@ func (s *Service) GetUsersExcept(ctx context.Context, id int) ([]*model.UserFrom
 	return s.db.GetUsersExcept(ctx, id)
 }
 
+func (s *Service) GetSecondMember(ctx context.Context, userID int, chatID int) (int, error) {
+
+	return s.db.GetSecondMember(ctx, userID, chatID)
+}
+
 func (s *Service) ClearChat(ctx context.Context, chatID, userID int) (int, error) {
 
 	return s.db.ClearChat(ctx, chatID, userID)
@@ -225,6 +230,11 @@ func (s *Service) SendMessage(ctx context.Context, message protocol.Send, from i
 	}
 
 	return msg, userID, nil
+}
+
+func (s *Service) GetChannel(ctx context.Context, handle string) (*model.ChannelFromDB, error) {
+
+	return s.db.GetChannel(ctx, handle)
 }
 
 func (s *Service) LoadMessages(ctx context.Context, chatID, from int) ([]protocol.Message, error) {

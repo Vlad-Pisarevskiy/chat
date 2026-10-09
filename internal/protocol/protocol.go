@@ -32,6 +32,15 @@ type Ack struct {
 	Time        time.Time `json:"time"`
 }
 
+type Removed struct {
+	ChatID int `json:"chat_id"`
+}
+
+type Cleared struct {
+	ChatID        int `json:"chat_id"`
+	UpToMessageID int `json:"up_to_message_id"`
+}
+
 type Presence struct {
 	UserID int  `json:"user_id"`
 	Online bool `json:"online"`

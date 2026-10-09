@@ -205,7 +205,7 @@
   }
   /* --- создание группы --- */
 
-  #new-group, #new-channel {
+  #new-group, #new-channel, #find-channel {
     width: 100%;
     margin-top: 12px;
     padding: 8px 12px;
@@ -217,8 +217,8 @@
     border-radius: 2px;
     cursor: pointer;
   }
-  #new-channel { margin-top: 8px; }
-  #new-group:hover, #new-channel:hover { background: #f7f6f6; }
+  #new-channel, #find-channel { margin-top: 8px; }
+  #new-group:hover, #new-channel:hover, #find-channel:hover { background: #f7f6f6; }
 
   dialog {
     width: min(420px, 92vw);
@@ -306,6 +306,22 @@
 
   .dialog-text { margin: 0 0 12px; font-size: 14px; color: #6b6867; }
 
+  /* Карточка найденного канала: во что вступаешь, видно до нажатия «Вступить». */
+  .found {
+    margin: 0 0 12px;
+    padding: 12px;
+    border: 1px solid #e4e2e2;
+    border-radius: 2px;
+  }
+  .found p { margin: 0; }
+  /* Описание набирали в textarea: переносы строк в нём — часть текста. */
+  #found-description {
+    margin-top: 8px;
+    font-size: 14px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
   #toast {
     position: fixed;
     left: 50%;
@@ -337,6 +353,7 @@
 
       <button type="button" id="new-group">Создать группу</button>
       <button type="button" id="new-channel">Создать канал</button>
+      <button type="button" id="find-channel">Найти канал</button>
 
       <script>
         const myUserId = {{.MyID}};
@@ -491,6 +508,37 @@
   </form>
 </dialog>
 
+<dialog id="find-dialog">
+  <!-- Одна кнопка на оба шага: «Найти», а когда канал нашёлся — «Вступить».
+       Так Enter в поле всегда делает следующий шаг. Правка имени возвращает
+       к поиску: карточка от прежнего имени была бы уже не про него. -->
+  <form id="find-form">
+    <section>
+      <h2>Найти канал</h2>
+
+      <label class="field">Публичное имя
+        <span class="handle">
+          <span class="prefix">@</span>
+          <input id="find-handle" type="text" maxlength="32" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="team_news">
+        </span>
+      </label>
+      <p class="hint">Имя целиком: поиска по части имени нет. Приватные каналы так не найти.</p>
+      <p class="error" id="find-error" hidden></p>
+
+      <div class="found" id="found" hidden>
+        <p class="name" id="found-name"></p>
+        <p class="login" id="found-handle"></p>
+        <p id="found-description" hidden></p>
+      </div>
+
+      <p class="actions">
+        <button type="button" class="ghost" id="cancel-find">Отмена</button>
+        <button type="submit" id="find-submit" disabled>Найти</button>
+      </p>
+    </section>
+  </form>
+</dialog>
+
 <dialog id="delete-dialog">
   <!-- Одна кнопка и галочка, как в Телеграме: галочка выбирает ручку — clear
        (у себя) или delete (у обоих). Имя собеседника в текст не подставляем:
@@ -562,6 +610,12 @@ const seenMessageIds = new Set();
 // может прийти после него и воскресить чат в ленте. id чатов не
 // переиспользуются, поэтому всё, что адресовано этим чатам, просто выбрасываем.
 const removedChats = new Set();
+
+// Каналы, в которые вступаем прямо сейчас. Пост из канала может прийти по
+// сокету раньше ответа на join, и незнакомый chat_id приняли бы за личку с
+// автором поста. Такие кадры выбрасываем: после join канал откроется со
+// свежей пачкой истории, и пост будет в ней.
+const joiningChats = new Set();
 
 // История грузится пачками: сначала самые свежие, при прокрутке вверх — всё
 // более старые (docs/api.md, GET /chats/{chatID}/messages).
@@ -708,7 +762,8 @@ function keyOf(button) {
 }
 
 // Роль читаем со строки в сайдбаре, а не держим отдельной картой: строка и так
-// единственное место, куда она приходит — из шаблона или после создания канала.
+// единственное место, куда она приходит — из шаблона, после создания канала
+// или после вступления в него.
 function canPost(key) {
   if (!isChannel(key)) return true;
 
@@ -944,6 +999,7 @@ function onMessage(payload) {
   // на него не кликали: группы известны с загрузки страницы. В личке отправитель
   // и есть собеседник, так что связку узнаём отсюда.
   if (key === undefined) {
+    if (joiningChats.has(payload.chat_id)) return;
     if (Number(payload.sender_id) === Number(myUserId)) return;
     key = userKey(payload.sender_id);
     bindChat(payload.chat_id, key);
@@ -1640,6 +1696,203 @@ function failCreateChannel(errorEl, text) {
   creatingChannel = false;
   showError(errorEl, text);
   createChannelEl.disabled = false;
+}
+
+// --- вступление в канал ---
+
+const findChannelEl = document.getElementById("find-channel");
+const findDialogEl = document.getElementById("find-dialog");
+const findFormEl = document.getElementById("find-form");
+const findHandleEl = document.getElementById("find-handle");
+const findErrorEl = document.getElementById("find-error");
+const foundEl = document.getElementById("found");
+const foundNameEl = document.getElementById("found-name");
+const foundHandleEl = document.getElementById("found-handle");
+const foundDescriptionEl = document.getElementById("found-description");
+const cancelFindEl = document.getElementById("cancel-find");
+const findSubmitEl = document.getElementById("find-submit");
+
+// Канал из последнего успешного поиска: {chat_id, name, description, handle}.
+// Пока он есть, кнопка окна значит «Вступить», а не «Найти».
+let found = null;
+// Один флаг на поиск и вступление: кнопка у них одна, и второй запрос, пока
+// идёт первый, не нужен ни там, ни там.
+let findBusy = false;
+
+findChannelEl.addEventListener("click", () => {
+  // Сброс на открытии, как у остальных окон.
+  findFormEl.reset();
+  hideError(findErrorEl);
+  showFound(null);
+
+  findDialogEl.showModal();
+  findHandleEl.focus();
+});
+
+cancelFindEl.addEventListener("click", () => findDialogEl.close());
+
+findHandleEl.addEventListener("input", () => {
+  hideError(findErrorEl);
+  showFound(null);
+});
+
+// Как у создания канала: «@» нарисован перед полем, но скопированный его продублирует.
+function findHandle() {
+  return findHandleEl.value.trim().replace(/^@/, "");
+}
+
+// «Я в канале» — значит, у него есть строка в «Каналах»: туда попадает всё,
+// где у меня есть роль, — из шаблона, после создания и после вступления.
+function isMember(chatId) {
+  return keyByChat.get(chatId) === channelKey(chatId);
+}
+
+function showFound(channel) {
+  found = channel;
+  foundEl.hidden = !channel;
+
+  if (channel) {
+    foundNameEl.textContent = channel.name; // textContent: название ввёл другой пользователь
+    foundHandleEl.textContent = "@" + channel.handle;
+    foundDescriptionEl.textContent = channel.description || "";
+    foundDescriptionEl.hidden = !channel.description;
+  }
+
+  syncFindSubmit();
+}
+
+function syncFindSubmit() {
+  findSubmitEl.textContent = !found ? "Найти" : isMember(found.chat_id) ? "Открыть" : "Вступить";
+  findSubmitEl.disabled = findBusy || (!found && findHandle() === "");
+}
+
+function setFindBusy(busy) {
+  findBusy = busy;
+  syncFindSubmit();
+}
+
+findFormEl.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  // Флаг, а не вид кнопки: Enter в поле отправляет форму и мимо неё.
+  if (findBusy) return;
+
+  if (!found) {
+    await findChannel();
+    return;
+  }
+
+  // Уже в канале — вступать незачем, просто открываем.
+  if (isMember(found.chat_id)) {
+    const channel = found;
+    findDialogEl.close();
+    openConversation(channelKey(channel.chat_id), channel.name, channel.chat_id);
+    return;
+  }
+
+  await joinChannel(found);
+});
+
+async function findChannel() {
+  const handle = findHandle();
+  if (handle === "") return;
+
+  // Имя не по формату на сервере заведомо не найдётся — и спрашивать незачем.
+  if (!handlePattern.test(handle)) {
+    showError(findErrorEl, handleRules);
+    return;
+  }
+
+  hideError(findErrorEl);
+  setFindBusy(true);
+
+  let response = null;
+  try {
+    // Со слэшем: маршрут объявлен как /chats/channels/, без слэша gin ответит
+    // редиректом, и это лишний запрос.
+    response = await fetch("/chats/channels/?handle=" + encodeURIComponent(handle));
+  } catch (err) {
+    console.error(err);
+  }
+
+  setFindBusy(false);
+
+  // Пока шёл запрос, имя в поле могли поменять — ответ уже про другое имя.
+  if (findHandle() !== handle) return;
+
+  if (!response) {
+    showError(findErrorEl, "Нет связи с сервером");
+    return;
+  }
+
+  // Приватный канал отвечает так же: по ответу нельзя узнать, что он существует.
+  if (response.status === 404) {
+    showError(findErrorEl, "Канал @" + handle + " не найден");
+    return;
+  }
+
+  const channel = response.ok ? await response.json().catch(() => null) : null;
+  if (!channel || !channel.chat_id) {
+    showError(findErrorEl, "Не удалось найти канал (" + response.status + ")");
+    return;
+  }
+
+  showFound(channel);
+}
+
+async function joinChannel(channel) {
+  const chatId = channel.chat_id;
+
+  hideError(findErrorEl);
+  setFindBusy(true);
+  joiningChats.add(chatId);
+
+  let response = null;
+  let payload = null;
+  try {
+    response = await fetch("/chats/" + chatId + "/join", { method: "POST" });
+    if (response.ok) payload = await response.json().catch(() => null);
+  } catch (err) {
+    console.error(err);
+  } finally {
+    // Отсюда до addChannel всё синхронно: кадр из канала не проскочит между
+    // снятием отметки и появлением связки.
+    joiningChats.delete(chatId);
+    setFindBusy(false);
+  }
+
+  if (!response) {
+    showError(findErrorEl, "Нет связи с сервером");
+    return;
+  }
+
+  // Канал удалили или сделали приватным, пока окно было открыто. Карточку
+  // убираем: вступать больше не во что.
+  if (response.status === 404) {
+    showFound(null);
+    showError(findErrorEl, "Канал больше недоступен");
+    return;
+  }
+
+  if (!response.ok) {
+    showError(findErrorEl, "Не удалось вступить в канал (" + response.status + ")");
+    return;
+  }
+
+  // Как у создания: вступление состоялось, даже если тело не разобралось.
+  // Название тогда берём из карточки, а роль у вступившего — подписчик.
+  const name = (payload && payload.name) || channel.name;
+  addChannel(chatId, name, (payload && payload.role) || "subscriber");
+
+  // Окно закрыли, пока шёл запрос, — человек уже занят другим, и выдёргивать
+  // его в канал не стоит. Строка в списке и так появилась.
+  if (!findDialogEl.open) {
+    toast("Вы вступили в канал «" + name + "»");
+    return;
+  }
+
+  findDialogEl.close();
+  openConversation(channelKey(chatId), name, chatId);
 }
 
 // --- удаление переписки ---

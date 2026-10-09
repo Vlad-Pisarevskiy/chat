@@ -19,6 +19,7 @@ type GroupFromDB struct {
 }
 
 type ChannelFromDB struct {
-	ID   int    `json:"channel_id" db:"id"`
-	Name string `json:"name" db:"name"`
+	ID          int    `json:"channel_id" db:"id"`
+	Name        string `json:"name" db:"name"`
+	Description string `json:"description" db:"description"`
 }
