@@ -19,6 +19,12 @@ type Repository struct {
 	pool *pgxpool.Pool
 }
 
+// queryer — то, что общо у пула и транзакции: один и тот же запрос можно
+// выполнить и вне транзакции, и внутри неё.
+type queryer interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 // chatAccess — что известно о пользователе в чате: есть ли он там и с какой ролью.
 type chatAccess struct {
 	chatType string
@@ -377,32 +383,125 @@ func (r *Repository) createDirect(ctx context.Context, userID, peerID int) (int,
 // сохранённое раньше сообщение и duplicate = true.
 func (r *Repository) SendMessage(ctx context.Context, send protocol.Send, from int) (*protocol.Message, []int, bool, error) {
 
-	msg := protocol.Message{ChatID: send.ChatID, SenderID: from, Body: send.Body}
+	msg, inserted, err := r.insertMessage(ctx, r.pool, send, from, nil)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if !inserted {
+		return r.notInserted(ctx, send, from)
+	}
 
-	err := r.pool.QueryRow(ctx, `INSERT INTO messages (chat_id, sender_id, client_msg_id, body, created_at)
-		SELECT $1, $2, $3, $4, now()
-		WHERE EXISTS (SELECT 1 FROM users_chats uc
-			JOIN chats c ON c.id = uc.chat_id
-			WHERE uc.chat_id = $1 AND uc.user_id = $2
-			AND (c.type <> 'channel' OR uc.role IN ('owner', 'admin')))
+	return r.delivered(ctx, msg)
+}
+
+// SendImage сохраняет сообщение с картинкой. Картинка и сообщение пишутся в
+// одной транзакции: картинки без сообщения не остаётся ни при повторе, ни при
+// отказе в правах, ни при гонке двух одинаковых запросов. Остальное, как у
+// SendMessage: получатели и duplicate.
+func (r *Repository) SendImage(ctx context.Context, send protocol.Send, image model.Image, from int) (*protocol.Message, []int, bool, error) {
+
+	// Повтор и отказ выясняем до записи байтов: ради них пять мегабайт в базу
+	// писать незачем.
+	msg, duplicate, err := r.findSent(ctx, r.pool, send.ClientMsgID, from)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if duplicate {
+		return msg, nil, true, nil
+	}
+
+	allowed, err := r.canWrite(ctx, send.ChatID, from)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if !allowed {
+		return nil, nil, false, r.denied(ctx, send.ChatID, from)
+	}
+
+	msg, inserted, err := r.insertImageMessage(ctx, send, image, from)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if !inserted {
+		// Между проверкой и записью успел такой же запрос или у отправителя
+		// отняли право: транзакция откатилась вместе с картинкой.
+		return r.notInserted(ctx, send, from)
+	}
+
+	return r.delivered(ctx, msg)
+}
+
+// insertImageMessage пишет картинку и сообщение в одной транзакции. inserted =
+// false значит, что сообщение не вставилось, и откатилась в том числе картинка.
+func (r *Repository) insertImageMessage(ctx context.Context, send protocol.Send, image model.Image, from int) (*protocol.Message, bool, error) {
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("сохранение картинки: %w", err)
+	}
+	defer func(tx pgx.Tx, ctx context.Context) {
+		_ = tx.Rollback(ctx)
+	}(tx, ctx)
+
+	var imageID int
+	err = tx.QueryRow(ctx, `INSERT INTO images (chat_id, content_type, data) VALUES ($1, $2, $3) RETURNING id`,
+		send.ChatID, image.ContentType, image.Data).Scan(&imageID)
+	if err != nil {
+		// Чат удалили между проверкой права и записью.
+		if isForeignKeyViolation(err) {
+			return nil, false, errors1.ErrChatNotFound
+		}
+		return nil, false, fmt.Errorf("сохранение картинки: %w", err)
+	}
+
+	msg, inserted, err := r.insertMessage(ctx, tx, send, from, &imageID)
+	if err != nil || !inserted {
+		return nil, false, err
+	}
+
+	if err = tx.Commit(ctx); err != nil {
+		return nil, false, fmt.Errorf("сохранение картинки: %w", err)
+	}
+
+	return msg, true, nil
+}
+
+// insertMessage вставляет сообщение, если у отправителя есть право писать в
+// чат и такого client_msg_id ещё не было. imageID — картинка сообщения или nil.
+func (r *Repository) insertMessage(ctx context.Context, q queryer, send protocol.Send, from int, imageID *int) (*protocol.Message, bool, error) {
+
+	msg := protocol.Message{ChatID: send.ChatID, SenderID: from, Body: send.Body}
+	if imageID != nil {
+		msg.ImageID = *imageID
+	}
+
+	err := q.QueryRow(ctx, `INSERT INTO messages (chat_id, sender_id, client_msg_id, body, created_at, image_id)
+		SELECT $1, $2, $3, $4, now(), $5::bigint
+		WHERE `+writeAllowedSQL+`
 		ON CONFLICT (sender_id, client_msg_id) DO NOTHING
 		RETURNING id, created_at`,
-		send.ChatID, from, send.ClientMsgID, send.Body).Scan(&msg.Id, &msg.Time)
+		send.ChatID, from, send.ClientMsgID, send.Body, imageID).Scan(&msg.Id, &msg.Time)
 	if err != nil {
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil, false, fmt.Errorf("сохранение сообщения: %w", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, false, nil
 		}
-		return r.notInserted(ctx, send, from)
+		return nil, false, fmt.Errorf("сохранение сообщения: %w", err)
 	}
 	msg.Time = msg.Time.UTC()
 
-	_, err = r.pool.Exec(ctx, `UPDATE users_chats SET last_read = $1
+	return &msg, true, nil
+}
+
+// delivered отмечает сообщение прочитанным у отправителя и находит получателей.
+func (r *Repository) delivered(ctx context.Context, msg *protocol.Message) (*protocol.Message, []int, bool, error) {
+
+	_, err := r.pool.Exec(ctx, `UPDATE users_chats SET last_read = $1
 									WHERE chat_id = $2 AND user_id = $3`, msg.Id, msg.ChatID, msg.SenderID)
 	if err != nil {
 		slog.Warn("last_read отправителя не обновлён", "chat", msg.ChatID, "err", err)
 	}
 
-	rows, err := r.pool.Query(ctx, `SELECT user_id FROM users_chats WHERE chat_id = $1`, send.ChatID)
+	rows, err := r.pool.Query(ctx, `SELECT user_id FROM users_chats WHERE chat_id = $1`, msg.ChatID)
 	if err != nil {
 		return nil, nil, false, fmt.Errorf("получатели сообщения: %w", err)
 	}
@@ -412,30 +511,97 @@ func (r *Repository) SendMessage(ctx context.Context, send protocol.Send, from i
 		return nil, nil, false, fmt.Errorf("получатели сообщения: %w", err)
 	}
 
-	return &msg, ids, false, nil
+	return msg, ids, false, nil
 }
 
-// notInserted выясняет, почему INSERT в SendMessage ничего не вставил: это
-// повтор уже сохранённого сообщения или у отправителя нет права писать в чат.
-func (r *Repository) notInserted(ctx context.Context, send protocol.Send, from int) (*protocol.Message, []int, bool, error) {
+// canWrite сообщает, может ли пользователь писать в чат.
+func (r *Repository) canWrite(ctx context.Context, chatID, userID int) (bool, error) {
+
+	var allowed bool
+	if err := r.pool.QueryRow(ctx, `SELECT `+writeAllowedSQL, chatID, userID).Scan(&allowed); err != nil {
+		return false, fmt.Errorf("право писать в чат: %w", err)
+	}
+
+	return allowed, nil
+}
+
+// findSent ищет сохранённое сообщение по паре (отправитель, client_msg_id).
+func (r *Repository) findSent(ctx context.Context, q queryer, clientMsgID string, from int) (*protocol.Message, bool, error) {
 
 	msg := protocol.Message{SenderID: from}
-	err := r.pool.QueryRow(ctx, `SELECT id, chat_id, body, created_at FROM messages
-									 WHERE sender_id = $1 AND client_msg_id = $2`,
-		from, send.ClientMsgID).Scan(&msg.Id, &msg.ChatID, &msg.Body, &msg.Time)
-	if err == nil {
-		msg.Time = msg.Time.UTC()
-		return &msg, nil, true, nil
+	err := q.QueryRow(ctx, `SELECT id, chat_id, body, COALESCE(image_id, 0), created_at FROM messages
+								WHERE sender_id = $1 AND client_msg_id = $2`,
+		from, clientMsgID).Scan(&msg.Id, &msg.ChatID, &msg.Body, &msg.ImageID, &msg.Time)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("поиск повтора сообщения: %w", err)
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil, false, fmt.Errorf("поиск повтора сообщения: %w", err)
+	msg.Time = msg.Time.UTC()
+
+	return &msg, true, nil
+}
+
+// denied объясняет, почему пользователю нельзя писать в чат.
+func (r *Repository) denied(ctx context.Context, chatID, userID int) error {
+
+	if _, err := r.requireMember(ctx, chatID, userID); err != nil {
+		return err
 	}
 
-	if _, err = r.requireMember(ctx, send.ChatID, from); err != nil {
+	return errors1.ErrNoWriteAccess
+}
+
+// notInserted выясняет, почему INSERT сообщения ничего не вставил: это повтор
+// уже сохранённого сообщения или у отправителя нет права писать в чат.
+func (r *Repository) notInserted(ctx context.Context, send protocol.Send, from int) (*protocol.Message, []int, bool, error) {
+
+	msg, duplicate, err := r.findSent(ctx, r.pool, send.ClientMsgID, from)
+	if err != nil {
 		return nil, nil, false, err
 	}
+	if duplicate {
+		return msg, nil, true, nil
+	}
 
-	return nil, nil, false, errors1.ErrNoWriteAccess
+	return nil, nil, false, r.denied(ctx, send.ChatID, from)
+}
+
+// GetImage отдаёт картинку, если пользователь вправе её смотреть. Не вправе и
+// не существует — одна и та же ErrImageNotFound: иначе по id можно было бы
+// проверить, есть ли чужая картинка.
+func (r *Repository) GetImage(ctx context.Context, imageID, userID int) (*model.Image, error) {
+
+	var chatID int
+	err := r.pool.QueryRow(ctx, `SELECT chat_id FROM images WHERE id = $1`, imageID).Scan(&chatID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, errors1.ErrImageNotFound
+		}
+		return nil, fmt.Errorf("поиск картинки: %w", err)
+	}
+
+	// Тот же доступ, что у истории чата.
+	if _, err = r.requireRead(ctx, chatID, userID); err != nil {
+		if errors.Is(err, errors1.ErrNotChatMember) || errors.Is(err, errors1.ErrChatNotFound) {
+			return nil, errors1.ErrImageNotFound
+		}
+		return nil, err
+	}
+
+	var image model.Image
+	err = r.pool.QueryRow(ctx, `SELECT content_type, data FROM images WHERE id = $1`, imageID).
+		Scan(&image.ContentType, &image.Data)
+	if err != nil {
+		// Чат удалили между запросами.
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, errors1.ErrImageNotFound
+		}
+		return nil, fmt.Errorf("чтение картинки: %w", err)
+	}
+
+	return &image, nil
 }
 
 func (r *Repository) CreateGroup(ctx context.Context, name string, members []int) (int, error) {
@@ -479,12 +645,13 @@ func (r *Repository) CreateGroup(ctx context.Context, name string, members []int
 
 func (r *Repository) LoadMessages(ctx context.Context, chatID, from int) ([]protocol.Message, error) {
 
-	if _, err := r.requireMember(ctx, chatID, from); err != nil {
+	if _, err := r.requireRead(ctx, chatID, from); err != nil {
 		return nil, err
 	}
 
+	// Байты картинок сюда не попадают: в выборке только image_id.
 	rows, err := r.pool.Query(ctx,
-		`SELECT m.id, m.chat_id, m.sender_id, m.body, m.created_at
+		`SELECT m.id, m.chat_id, m.sender_id, m.body, COALESCE(m.image_id, 0), m.created_at
 			 FROM messages m
 			 JOIN users_chats uc ON uc.chat_id = m.chat_id AND uc.user_id = $2
 			 WHERE m.chat_id = $1 AND m.id > COALESCE(uc.border, 0)
@@ -505,6 +672,7 @@ func (r *Repository) LoadMessages(ctx context.Context, chatID, from int) ([]prot
 			&message.ChatID,
 			&message.SenderID,
 			&message.Body,
+			&message.ImageID,
 			&message.Time); err != nil {
 			return nil, fmt.Errorf("история чата: %w", err)
 		}
@@ -680,6 +848,28 @@ func (r *Repository) requireMember(ctx context.Context, chatID, userID int) (cha
 	}
 
 	if !access.member {
+		return access, errors1.ErrNotChatMember
+	}
+
+	return access, nil
+}
+
+// canRead — единственное место правила «кто читает историю чата и смотрит его
+// картинки». Сейчас читают только участники.
+func (a chatAccess) canRead() bool {
+
+	return a.member
+}
+
+// requireRead пропускает дальше, только если чат есть и пользователь вправе его читать.
+func (r *Repository) requireRead(ctx context.Context, chatID, userID int) (chatAccess, error) {
+
+	access, err := r.chatAccess(ctx, chatID, userID)
+	if err != nil {
+		return access, err
+	}
+
+	if !access.canRead() {
 		return access, errors1.ErrNotChatMember
 	}
 

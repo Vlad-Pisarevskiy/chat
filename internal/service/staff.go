@@ -2,7 +2,9 @@ package service
 
 import (
 	errors1 "chatflow/internal/app-errors"
+	"chatflow/internal/model"
 	"context"
+	"net/http"
 	"regexp"
 	"unicode/utf8"
 
@@ -103,6 +105,36 @@ func verifyName(name string) error {
 	}
 
 	return nil
+}
+
+// verifyBodyLength проверяет длину текста сообщения или подписи, уже после trim.
+func verifyBodyLength(body string) error {
+
+	if utf8.RuneCountInString(body) > maxBodyLength {
+		return errors1.ErrLongBody
+	}
+
+	return nil
+}
+
+// checkImage проверяет файл и определяет его формат по содержимому: имя и
+// Content-Type части присылает клиент, и оба можно подделать.
+func checkImage(data []byte) (model.Image, error) {
+
+	if len(data) == nullLength {
+		return model.Image{}, errors1.ErrNoImage
+	}
+
+	if len(data) > MaxImageSize {
+		return model.Image{}, errors1.ErrImageTooLarge
+	}
+
+	contentType := http.DetectContentType(data[:min(len(data), sniffLength)])
+	if contentType != contentTypeJPEG && contentType != contentTypePNG {
+		return model.Image{}, errors1.ErrBadImageFormat
+	}
+
+	return model.Image{ContentType: contentType, Data: data}, nil
 }
 
 func verifyChannelDescription(desc string) error {

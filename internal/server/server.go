@@ -78,6 +78,12 @@ func (s *Server) GetRouter() *gin.Engine {
 		chats.POST("/channels", s.CreateChannel)
 	}
 
+	// Картинка приходит как multipart, поэтому jsonOnly здесь не нужен.
+	images := r.Group("/chats", s.apiAuthorization())
+	images.POST("/images", s.SendImage)
+
+	r.GET("/images/:imageID", s.apiAuthorization(), s.GetImage)
+
 	return r
 }
 

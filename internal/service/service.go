@@ -10,7 +10,6 @@ import (
 	"crypto/sha256"
 	"slices"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -228,6 +227,27 @@ func (s *Service) FindChat(ctx context.Context, userID, peerID int) (int, bool, 
 // Возвращает кадр с обрезанным body и client_msg_id в каноническом виде.
 func (s *Service) PrepareSend(send protocol.Send, senderID int) (protocol.Send, error) {
 
+	send, err := prepareTarget(send, senderID)
+	if err != nil {
+		return send, err
+	}
+
+	send.Body = strings.TrimSpace(send.Body)
+	if send.Body == emptyBody {
+		return send, errors1.ErrEmptyBody
+	}
+
+	if err = verifyBodyLength(send.Body); err != nil {
+		return send, err
+	}
+
+	return send, nil
+}
+
+// prepareTarget проверяет client_msg_id и адресата: ровно одно из chat_id и
+// peer_id, не я сам. Общее для текста и картинок.
+func prepareTarget(send protocol.Send, senderID int) (protocol.Send, error) {
+
 	id, err := uuid.Parse(send.ClientMsgID)
 	if err != nil {
 		return send, errors1.ErrInvalidClientMsgID
@@ -242,16 +262,28 @@ func (s *Service) PrepareSend(send protocol.Send, senderID int) (protocol.Send, 
 		return send, errors1.ErrPeerIsSelf
 	}
 
-	send.Body = strings.TrimSpace(send.Body)
-	if send.Body == emptyBody {
-		return send, errors1.ErrEmptyBody
-	}
-
-	if utf8.RuneCountInString(send.Body) > maxBodyLength {
-		return send, errors1.ErrLongBody
-	}
-
 	return send, nil
+}
+
+// PrepareImage проверяет запрос на отправку картинки до того, как что-то
+// создано, как PrepareSend. Подпись может быть пустой, лимит длины у неё общий
+// с текстом. Возвращает запрос с обрезанной подписью и картинку с форматом,
+// который определён по содержимому файла.
+func (s *Service) PrepareImage(send protocol.Send, senderID int, data []byte) (protocol.Send, model.Image, error) {
+
+	send, err := prepareTarget(send, senderID)
+	if err != nil {
+		return send, model.Image{}, err
+	}
+
+	send.Body = strings.TrimSpace(send.Body)
+	if err = verifyBodyLength(send.Body); err != nil {
+		return send, model.Image{}, err
+	}
+
+	image, err := checkImage(data)
+
+	return send, image, err
 }
 
 func (s *Service) SendMessage(ctx context.Context, message protocol.Send, from int) (*SentMessage, error) {
@@ -262,6 +294,23 @@ func (s *Service) SendMessage(ctx context.Context, message protocol.Send, from i
 	}
 
 	return &SentMessage{Message: msg, Recipients: recipients, Duplicate: duplicate}, nil
+}
+
+// SendImage сохраняет сообщение с картинкой. Результат устроен как у SendMessage.
+func (s *Service) SendImage(ctx context.Context, message protocol.Send, image model.Image, from int) (*SentMessage, error) {
+
+	msg, recipients, duplicate, err := s.db.SendImage(ctx, message, image, from)
+	if err != nil {
+		return nil, err
+	}
+
+	return &SentMessage{Message: msg, Recipients: recipients, Duplicate: duplicate}, nil
+}
+
+// GetImage отдаёт картинку, если пользователь вправе её смотреть.
+func (s *Service) GetImage(ctx context.Context, imageID, userID int) (*model.Image, error) {
+
+	return s.db.GetImage(ctx, imageID, userID)
 }
 
 func (s *Service) GetChannel(ctx context.Context, handle string) (*model.ChannelFromDB, error) {

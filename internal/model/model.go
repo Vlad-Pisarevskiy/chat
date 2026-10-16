@@ -24,3 +24,10 @@ type ChannelFromDB struct {
 	Description string `json:"description,omitempty" db:"description"`
 	Role        string `json:"role,omitempty" db:"role"`
 }
+
+// Image — картинка, которую отправитель приложил к сообщению. ContentType
+// определён сервером по содержимому файла.
+type Image struct {
+	ContentType string
+	Data        []byte
+}

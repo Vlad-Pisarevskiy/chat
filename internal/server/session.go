@@ -180,38 +180,10 @@ func (s *session) handleSend(payload json.RawMessage) {
 	s.hub.Send(sent.Recipients, frame)
 }
 
-// directChat находит или заводит личный чат с собеседником. О новом чате оба
-// узнают из chat_added раньше, чем из него придёт первое message: в каждое
-// соединение кадры уходят по порядку.
+// directChat находит или заводит личный чат с собеседником, см. ensureDirectChat.
 func (s *session) directChat(peerID int) (int, error) {
 
-	chatID, created, err := s.service.GetOrCreateChat(s.ctx, peerID, s.userID)
-	if err != nil {
-		return nullID, err
-	}
-
-	if created {
-		s.sendChatAdded(s.userID, chatID, peerID)
-		s.sendChatAdded(peerID, chatID, s.userID)
-	}
-
-	return chatID, nil
-}
-
-// sendChatAdded сообщает пользователю о новом личном чате; peerID — его собеседник.
-func (s *session) sendChatAdded(userID, chatID, peerID int) {
-
-	frame, err := newFrame(chatAddedType, protocol.ChatAdded{
-		ChatID: chatID,
-		Kind:   protocol.KindDirect,
-		PeerID: peerID,
-	})
-	if err != nil {
-		slog.Error("кадр chat_added не собран", "err", err)
-		return
-	}
-
-	s.hub.Send([]int{userID}, frame)
+	return ensureDirectChat(s.ctx, s.service, s.hub, s.userID, peerID)
 }
 
 func (s *session) sendError(clientMsgID string, err error) {
