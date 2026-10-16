@@ -164,27 +164,6 @@ func (r *Repository) RemoveToken(ctx context.Context, token []byte) error {
 	return nil
 }
 
-func (r *Repository) GetUsers(ctx context.Context) ([]*model.UserFromDB, error) {
-
-	var users []*model.UserFromDB
-
-	rows, err := r.pool.Query(ctx, "SELECT id, name, login FROM users")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	users, err = scanRows(rows, users)
-	if err != nil {
-		if users != nil {
-			return users, nil
-		}
-		return nil, err
-	}
-
-	return users, nil
-}
-
 func (r *Repository) GetGroups(ctx context.Context, userID int) ([]model.GroupFromDB, error) {
 
 	rows, err := r.pool.Query(ctx, `SELECT c.id, c.name FROM chats c

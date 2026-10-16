@@ -62,5 +62,3 @@ var (
 )
 
 var ErrEmptyDatabasePath = errors.New("не задан DATABASE_URL")
-
-var ErrLoginNotFound = errors.New("логин не найден")

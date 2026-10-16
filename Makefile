@@ -14,9 +14,6 @@ test:
 postgres:
 	docker compose up -d postgres
 
-client:
-	go run ./cmd/client
-
 compose-up:
 	docker compose up --build -d
 
@@ -29,4 +26,4 @@ migrate-up:
 migrate-down:
 	go tool goose down
 
-.PHONY: chat test postgres client compose-up compose-down migrate-up migrate-down
+.PHONY: chat test postgres compose-up compose-down migrate-up migrate-down
