@@ -1,12 +1,15 @@
 package server
 
 import (
+	errors1 "chatflow/internal/app-errors"
 	"chatflow/internal/hub"
 	"chatflow/internal/protocol"
 	"chatflow/internal/service"
 	"context"
 	"encoding/json"
-	"log"
+	"errors"
+	"log/slog"
+	"net"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -58,7 +61,7 @@ func (s *session) handle() {
 
 	s.conn.SetPongHandler(func(string) error { return s.conn.SetReadDeadline(time.Now().Add(readDeadline)) })
 	if err := s.conn.SetReadDeadline(time.Now().Add(readDeadline)); err != nil {
-		log.Println(err)
+		slog.Warn("срок чтения не выставлен", "user", s.userID, "err", err)
 		return
 	}
 
@@ -71,36 +74,26 @@ func (s *session) handle() {
 
 func (s *session) sendPresence(isOnline bool) {
 
-	presence := protocol.Presence{
+	frame, err := newFrame(presenceType, protocol.Presence{
 		UserID: s.userID,
 		Online: isOnline,
-	}
-
-	payload, err := json.Marshal(presence)
+	})
 	if err != nil {
-		log.Println(err)
+		slog.Error("кадр presence не собран", "err", err)
 		return
 	}
 
-	data := &protocol.Data{
-		Type:    presenceType,
-		Payload: payload,
-	}
-
-	users := s.hub.OnlineUsers()
-	s.hub.Send(users, data)
+	s.hub.Send(s.hub.OnlineUsers(), frame)
 }
 
 func (s *session) reader() {
 
-	defer func(conn *websocket.Conn) {
-		_ = conn.Close()
-	}(s.conn)
-
 	for {
 		if err := s.readMessage(); err != nil {
-			log.Println(err)
-			break
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+				slog.Info("соединение оборвалось", "user", s.userID, "err", err)
+			}
+			return
 		}
 	}
 }
@@ -108,98 +101,159 @@ func (s *session) reader() {
 func (s *session) readMessage() error {
 
 	_, message, err := s.conn.ReadMessage()
-	if err != nil { // если при чтении сообщения происходит ошибка мы возвращаемся из функции записывая структуру в done канал, покаа все логино
+	if err != nil {
 		return err
 	}
+
+	s.dispatch(message)
+
+	return s.conn.SetReadDeadline(time.Now().Add(readDeadline))
+}
+
+// dispatch разбирает кадр от клиента. На всё, что не удалось обработать,
+// уходит error: молча выброшенный send оставил бы пузырь в «отправляется».
+func (s *session) dispatch(message []byte) {
 
 	var data protocol.Data
-	if err = json.Unmarshal(message, &data); err != nil {
-		log.Println(err)
-		return nil
-	}
-
-	if data.Type == sendType {
-
-		var sendMessage protocol.Send
-		if err = json.Unmarshal(data.Payload, &sendMessage); err != nil {
-			log.Println(err)
-			return nil
-		}
-
-		if sendMessage.ChatID == nullID && sendMessage.PeerID == nullID ||
-			sendMessage.ChatID != nullID && sendMessage.PeerID != nullID {
-			return nil
-		}
-
-		if sendMessage.ChatID != nullID {
-			s.sendToChat(sendMessage)
-
-		} else if sendMessage.PeerID != nullID {
-			chatID, err := s.service.GetOrCreateChat(s.ctx, sendMessage.PeerID, s.userID)
-			if err != nil {
-				log.Println(err)
-				return nil
-			}
-			sendMessage.ChatID = chatID
-			s.sendToChat(sendMessage)
-		}
-	}
-
-	if err = s.conn.SetReadDeadline(time.Now().Add(readDeadline)); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (s *session) sendToChat(send protocol.Send) {
-
-	message, userIDs, err := s.service.SendMessage(s.ctx, send, s.userID)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	s.sendAck(send.ClientMsgID, message.Id, message.ChatID, message.Time)
-
-	msg, err := json.Marshal(message)
-	if err != nil {
-		log.Println(err)
+	if err := json.Unmarshal(message, &data); err != nil {
+		s.sendError(emptyClientMsgID, errors1.ErrBadFrame)
 		return
 	}
 
-	data := protocol.Data{
-		Type:    messageType,
-		Payload: msg,
+	switch data.Type {
+	case sendType:
+		s.handleSend(data.Payload)
+	default:
+		s.sendError(emptyClientMsgID, errors1.ErrUnknownFrame)
 	}
-
-	s.hub.Send(userIDs, &data)
 }
 
-func (s *session) sendAck(clientMsgID string, messageID, chatID int, time2 time.Time) {
+// handleSend отвечает на send ровно одним кадром: ack или error.
+func (s *session) handleSend(payload json.RawMessage) {
 
-	ack := protocol.Ack{
+	var send protocol.Send
+	if err := json.Unmarshal(payload, &send); err != nil {
+		s.sendError(clientMsgIDOf(payload), errors1.ErrBadFrame)
+		return
+	}
+
+	// В ответах id ровно в том виде, в каком его прислали: по нему фронт ищет пузырь.
+	clientMsgID := send.ClientMsgID
+
+	send, err := s.service.PrepareSend(send, s.userID)
+	if err != nil {
+		s.sendError(clientMsgID, err)
+		return
+	}
+
+	if send.PeerID != nullID {
+		if send.ChatID, err = s.directChat(send.PeerID); err != nil {
+			s.sendError(clientMsgID, err)
+			return
+		}
+	}
+
+	sent, err := s.service.SendMessage(s.ctx, send, s.userID)
+	if err != nil {
+		s.sendError(clientMsgID, err)
+		return
+	}
+
+	s.enqueue(ackType, protocol.Ack{
 		ClientMsgID: clientMsgID,
-		MessageID:   messageID,
-		ChatID:      chatID,
-		Time:        time2,
-	}
+		MessageID:   sent.Message.Id,
+		ChatID:      sent.Message.ChatID,
+		Time:        sent.Message.Time,
+	})
 
-	payload, err := json.Marshal(ack)
-	if err != nil {
-		log.Println(err)
+	// Повтор: сообщение разослали, когда сохраняли его в первый раз.
+	if sent.Duplicate {
 		return
 	}
 
-	data := protocol.Data{
-		Type:    ackType,
-		Payload: payload,
+	frame, err := newFrame(messageType, sent.Message)
+	if err != nil {
+		slog.Error("кадр message не собран", "err", err)
+		return
+	}
+
+	s.hub.Send(sent.Recipients, frame)
+}
+
+// directChat находит или заводит личный чат с собеседником. О новом чате оба
+// узнают из chat_added раньше, чем из него придёт первое message: в каждое
+// соединение кадры уходят по порядку.
+func (s *session) directChat(peerID int) (int, error) {
+
+	chatID, created, err := s.service.GetOrCreateChat(s.ctx, peerID, s.userID)
+	if err != nil {
+		return nullID, err
+	}
+
+	if created {
+		s.sendChatAdded(s.userID, chatID, peerID)
+		s.sendChatAdded(peerID, chatID, s.userID)
+	}
+
+	return chatID, nil
+}
+
+// sendChatAdded сообщает пользователю о новом личном чате; peerID — его собеседник.
+func (s *session) sendChatAdded(userID, chatID, peerID int) {
+
+	frame, err := newFrame(chatAddedType, protocol.ChatAdded{
+		ChatID: chatID,
+		Kind:   protocol.KindDirect,
+		PeerID: peerID,
+	})
+	if err != nil {
+		slog.Error("кадр chat_added не собран", "err", err)
+		return
+	}
+
+	s.hub.Send([]int{userID}, frame)
+}
+
+func (s *session) sendError(clientMsgID string, err error) {
+
+	f, known := classify(err)
+	if !known {
+		slog.Error("ошибка обработки кадра", "user", s.userID, "err", err)
+	}
+
+	s.enqueue(errorType, protocol.Error{
+		Code:        f.code,
+		Description: f.text,
+		ClientMsgID: clientMsgID,
+	})
+}
+
+// enqueue кладёт кадр в очередь своего соединения. Ждать здесь можно: очередь
+// разгребает writer этого же соединения, чужих оно не задерживает.
+func (s *session) enqueue(frameType string, payload any) {
+
+	frame, err := newFrame(frameType, payload)
+	if err != nil {
+		slog.Error("кадр не собран", "type", frameType, "err", err)
+		return
 	}
 
 	select {
-	case s.msgChan <- data:
+	case s.msgChan <- *frame:
 	case <-s.ctx.Done():
-		return
 	}
+}
+
+// clientMsgIDOf достаёт client_msg_id из send, который не разобрался целиком:
+// без него фронт не узнает, какое сообщение не ушло.
+func clientMsgIDOf(payload json.RawMessage) string {
+
+	var probe struct {
+		ClientMsgID string `json:"client_msg_id"`
+	}
+	_ = json.Unmarshal(payload, &probe)
+
+	return probe.ClientMsgID
 }
 
 func (s *session) writer() {
@@ -211,11 +265,16 @@ func (s *session) writer() {
 	for {
 		select {
 		case msg := <-s.msgChan:
-
-			s.sendMessage(msg)
+			if err := s.write(msg); err != nil {
+				s.drop(err)
+				return
+			}
 
 		case <-ticker.C:
-			s.sendTick()
+			if err := s.ping(); err != nil {
+				s.drop(err)
+				return
+			}
 
 		case <-s.ctx.Done():
 			return
@@ -223,33 +282,38 @@ func (s *session) writer() {
 	}
 }
 
-func (s *session) sendMessage(msg protocol.Data) {
+// drop закрывает соединение, в которое не удалось писать. Читающая горутина
+// выйдет из ReadMessage, и сессия завершится обычным путём.
+func (s *session) drop(err error) {
+
+	// Соединение уже закрыто читающей стороной: кадр взяли из очереди в момент
+	// выхода. Это обычное завершение, а не сбой.
+	if !errors.Is(err, net.ErrClosed) {
+		slog.Info("запись в соединение не удалась", "user", s.userID, "err", err)
+	}
+
+	_ = s.conn.Close()
+}
+
+func (s *session) write(msg protocol.Data) error {
 
 	if err := s.conn.SetWriteDeadline(time.Now().Add(writeDeadline)); err != nil {
-		log.Println(err)
-		return
+		return err
 	}
 
 	message, err := json.Marshal(msg)
 	if err != nil {
-		log.Println(err)
+		return err
 	}
 
-	if err = s.conn.WriteMessage(websocket.TextMessage, message); err != nil {
-		log.Println(err)
-		return
-	}
+	return s.conn.WriteMessage(websocket.TextMessage, message)
 }
 
-func (s *session) sendTick() {
+func (s *session) ping() error {
 
 	if err := s.conn.SetWriteDeadline(time.Now().Add(writeDeadline)); err != nil {
-		log.Println(err)
-		return
+		return err
 	}
 
-	if err := s.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-		log.Println(err)
-		return
-	}
+	return s.conn.WriteMessage(websocket.PingMessage, nil)
 }

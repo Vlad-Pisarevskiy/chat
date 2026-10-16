@@ -5,6 +5,21 @@ import (
 	"time"
 )
 
+// Коды кадра error. По коду фронт решает, предлагать ли повторить отправку.
+const (
+	CodeBadRequest = "bad_request"
+	CodeForbidden  = "forbidden"
+	CodeNotFound   = "not_found"
+	CodeInternal   = "internal"
+)
+
+// Виды чата в кадре chat_added.
+const (
+	KindDirect  = "direct"
+	KindGroup   = "group"
+	KindChannel = "channel"
+)
+
 type Data struct {
 	Type    string          `json:"type"`
 	Payload json.RawMessage `json:"payload"`
@@ -46,7 +61,16 @@ type Presence struct {
 	Online bool `json:"online"`
 }
 
+type ChatAdded struct {
+	ChatID int    `json:"chat_id"`
+	Kind   string `json:"kind"`
+	Name   string `json:"name,omitempty"`
+	Role   string `json:"role,omitempty"`
+	PeerID int    `json:"peer_id,omitempty"`
+}
+
 type Error struct {
-	Code        int    `json:"code"`
+	Code        string `json:"code"`
 	Description string `json:"description"`
+	ClientMsgID string `json:"client_msg_id,omitempty"`
 }

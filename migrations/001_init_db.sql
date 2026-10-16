@@ -34,7 +34,20 @@ CREATE TABLE messages
     sender_id BIGINT REFERENCES users(id) NOT NULL,
     client_msg_id uuid,
     body      TEXT,
-    created_at timestamptz
+    created_at timestamptz,
+    -- Повтор send с тем же client_msg_id не должен порождать второе сообщение.
+    UNIQUE (sender_id, client_msg_id)
+);
+
+-- Один личный чат на пару. Пара хранится упорядоченной, чтобы (A, B) и (B, A)
+-- были одной строкой и упирались в один первичный ключ.
+CREATE TABLE direct_chats
+(
+    user_low  BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    user_high BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    chat_id   BIGINT NOT NULL UNIQUE REFERENCES chats (id) ON DELETE CASCADE,
+    PRIMARY KEY (user_low, user_high),
+    CHECK (user_low < user_high)
 );
 
 CREATE TABLE tokens
@@ -46,6 +59,7 @@ CREATE TABLE tokens
 );
 
 -- +goose Down
+DROP TABLE direct_chats;
 DROP TABLE tokens;
 DROP TABLE users_chats;
 DROP TABLE messages;

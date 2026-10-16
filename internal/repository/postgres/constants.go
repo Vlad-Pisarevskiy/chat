@@ -7,6 +7,12 @@ const (
 	ownerRole  = "owner"
 	memberRole = "member"
 
+	directType = "direct"
+
+	// Коды ошибок Postgres.
+	uniqueViolation     = "23505"
+	foreignKeyViolation = "23503"
+
 	nullID         = 0
 	nullLength     = 0
 	tokenTTL       = time.Hour * 24

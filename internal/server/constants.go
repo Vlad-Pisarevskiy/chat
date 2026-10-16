@@ -13,19 +13,38 @@ const (
 	writeDeadline = time.Second * 30
 	tickerTiming  = time.Second * 25
 
-	messageIdKey   = "messageID"
-	presenceType   = "presence"
-	messageType    = "message"
-	peerID         = "peer_id"
-	userIdKey      = "userID"
-	handleKey      = "handle"
-	chatIdKey      = "chatID"
-	tokenKey       = "token"
-	sendType       = "send"
-	ackType        = "ack"
-	emptyMessageID = ""
-	emptyHandle
-	emptyPeer = ""
-	emptyChat = ""
-	nullID    = 0
+	presenceType    = "presence"
+	messageType     = "message"
+	errorType       = "error"
+	chatAddedType   = "chat_added"
+	chatRemovedType = "chat_removed"
+	chatClearedType = "chat_cleared"
+	sendType        = "send"
+	ackType         = "ack"
+
+	ownerRole = "owner"
+
+	peerID    = "peer_id"
+	userIdKey = "userID"
+	handleKey = "handle"
+	chatIdKey = "chatID"
+	tokenKey  = "token"
+
+	jsonMediaType     = "application/json"
+	internalErrorText = "внутренняя ошибка сервера"
+	unauthorizedText  = "нужно войти"
+	notJSONText       = "тело запроса должно быть в формате JSON"
+	badChatText       = "чат не найден"
+	badPeerText       = "peer_id должен быть числом"
+	noDirectChatText  = "переписки ещё не было"
+
+	emptyHandle      = ""
+	emptyDescription = ""
+	emptyToken       = ""
+	emptyOrigin      = ""
+	emptyClientMsgID = ""
+	nullID           = 0
+
+	// Отрицательный Max-Age велит браузеру удалить куку сразу.
+	removeCookieAge = -1
 )

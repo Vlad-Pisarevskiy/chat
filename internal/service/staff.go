@@ -9,17 +9,18 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+var loginRegexp = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
+
+var handleRegexp = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{4,31}$`)
+
+// validateRegister сначала проверяет формат и только потом ходит в базу.
 func (s *Service) validateRegister(ctx context.Context, user RegisterInput) error {
 
-	if err := correctLogin(user.Login); err != nil {
-		return err
-	}
-
-	if err := s.db.LoginExists(ctx, user.Login); err != nil {
-		return err
-	}
-
 	if err := correctName(user.Name); err != nil {
+		return err
+	}
+
+	if err := correctLogin(user.Login); err != nil {
 		return err
 	}
 
@@ -27,7 +28,7 @@ func (s *Service) validateRegister(ctx context.Context, user RegisterInput) erro
 		return err
 	}
 
-	return nil
+	return s.db.LoginExists(ctx, user.Login)
 }
 
 func hashPassword(password string) (string, error) {
@@ -44,7 +45,7 @@ func correctName(name string) error {
 		return errors1.ErrEmptyName
 	}
 
-	if len(name) > maxNameLength {
+	if utf8.RuneCountInString(name) > maxNameLength {
 		return errors1.ErrLongName
 	}
 
@@ -55,6 +56,10 @@ func correctLogin(login string) error {
 
 	if login == emptyLogin {
 		return errors1.ErrEmptyLogin
+	}
+
+	if !loginRegexp.MatchString(login) {
+		return errors1.ErrLoginFormat
 	}
 
 	if len(login) < minLoginLength {
@@ -74,20 +79,26 @@ func correctPassword(password string) error {
 		return errors1.ErrEmptyPassword
 	}
 
-	if len(password) < minPasswordLength {
+	length := utf8.RuneCountInString(password)
+	if length < minPasswordLength {
 		return errors1.ErrShortPassword
 	}
 
-	if len(password) > maxPasswordLength {
+	// bcrypt смотрит только на первые 72 байта и на более длинный пароль
+	// возвращает ошибку. Кириллица — два байта на букву, поэтому лимит по байтам
+	// проверяется отдельно от лимита по символам.
+	if length > maxPasswordLength || len(password) > maxPasswordBytes {
 		return errors1.ErrLongPassword
 	}
 
 	return nil
 }
 
-func verifyChannelName(name string) error {
+// verifyName проверяет название группы или канала, уже после trim.
+func verifyName(name string) error {
 
-	if utf8.RuneCountInString(name) < minNameLength || utf8.RuneCountInString(name) > maxNameLength {
+	length := utf8.RuneCountInString(name)
+	if length < minNameLength || length > maxNameLength {
 		return errors1.ErrIncorrectNameLength
 	}
 
@@ -97,31 +108,16 @@ func verifyChannelName(name string) error {
 func verifyChannelDescription(desc string) error {
 
 	if utf8.RuneCountInString(desc) > maxDescriptionLength {
-		return errors1.ErrIncorrectData
+		return errors1.ErrTooLongDescription
 	}
 
 	return nil
 }
-
-var handleRegexp = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{4,31}$`)
 
 func verifyChannelHandle(handle string) error {
 
 	if !handleRegexp.MatchString(handle) {
 		return errors1.ErrInvalidHandle
-	}
-
-	return nil
-}
-
-func verifyGroup(group GroupCreate) error {
-
-	if len(group.Name) < minNameLength || len(group.Name) > maxNameLength {
-		return errors1.ErrIncorrectNameLength
-	}
-
-	if len(group.Members) < minMembers {
-		return errors1.ErrIncorrectMembersCount
 	}
 
 	return nil

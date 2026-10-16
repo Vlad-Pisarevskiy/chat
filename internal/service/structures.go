@@ -1,5 +1,7 @@
 package service
 
+import "chatflow/internal/protocol"
+
 type RegisterInput struct {
 	Name     string
 	Login    string
@@ -32,6 +34,22 @@ type MessageDelete struct {
 type JoinChannel struct {
 	UserID    int `json:"user_id"`
 	ChannelID int `json:"channel_id"`
+}
+
+// CreatedGroup — созданная группа: название уже после trim, участники вместе
+// с создателем. Им всем сервер разошлёт chat_added.
+type CreatedGroup struct {
+	ChatID  int
+	Name    string
+	Members []int
+}
+
+// SentMessage — результат send. Duplicate означает повтор уже сохранённого
+// сообщения: Recipients тогда пуст, рассылать нечего, нужен только ack.
+type SentMessage struct {
+	Message    *protocol.Message
+	Recipients []int
+	Duplicate  bool
 }
 
 type ChannelFromDB struct {
