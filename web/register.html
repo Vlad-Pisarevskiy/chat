@@ -118,11 +118,11 @@ form.addEventListener("submit", async (event) => {
   submit.disabled = false;
 });
 
-// Register кладёт текст в "error", Login — в "error:"; у пустого тела нет ни того, ни другого.
+// Сервер кладёт текст ошибки в "error"; у пустого тела его нет.
 async function errorText(response) {
   try {
     const body = await response.json();
-    const text = body["error"] || body["error:"];
+    const text = body["error"];
     if (typeof text === "string" && text) return text;
   } catch {}
   return "Ошибка " + response.status;

@@ -6,16 +6,24 @@ import (
 	"chatflow/internal/protocol"
 	"context"
 	"errors"
-	"log"
-	"slices"
+	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Repository struct {
 	pool *pgxpool.Pool
+}
+
+// chatAccess — что известно о пользователе в чате: есть ли он там и с какой ролью.
+type chatAccess struct {
+	chatType string
+	member   bool
+	role     string
 }
 
 func New(pool *pgxpool.Pool) *Repository {
@@ -28,7 +36,12 @@ func (r *Repository) RegisterUser(ctx context.Context, client model.User) error 
 	_, err := r.pool.Exec(ctx, "INSERT INTO users(name, login, password) VALUES ($1, $2, $3)",
 		client.Name, client.Login, client.Password)
 	if err != nil {
-		return err
+		// Два одновременных запроса с одним логином оба проходят LoginExists,
+		// второго останавливает только UNIQUE.
+		if isUniqueViolation(err) {
+			return errors1.ErrExistsLogin
+		}
+		return fmt.Errorf("регистрация пользователя: %w", err)
 	}
 
 	return nil
@@ -80,7 +93,7 @@ func (r *Repository) FindUserByID(ctx context.Context, id int) (*model.UserFromD
 		&user.Name,
 		&user.Login); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, errors1.ErrIncorrectLoginData
+			return nil, errors1.ErrUserDoesntExist
 		}
 		return nil, err
 	}
@@ -111,25 +124,13 @@ func (r *Repository) GetUsersExcept(ctx context.Context, id int) ([]*model.UserF
 
 func (r *Repository) AddToken(ctx context.Context, userID int, token []byte) error {
 
-	_, err := r.pool.Exec(ctx, `INSERT INTO tokens(user_id, token_hash, created_at, expires_at) 
+	_, err := r.pool.Exec(ctx, `INSERT INTO tokens(user_id, token_hash, created_at, expires_at)
 									VALUES ($1, $2, $3, $4)`, userID, token, time.Now(), time.Now().Add(tokenTTL))
 	if err != nil {
 		return err
 	}
 
 	return nil
-}
-
-func (r *Repository) GetSecondMember(ctx context.Context, userID int, chatID int) (int, error) {
-
-	var id int
-	row := r.pool.QueryRow(ctx, `SELECT user_id FROM users_chats WHERE chat_id = $1 AND user_id <> $2`, chatID, userID)
-
-	if err := row.Scan(&id); err != nil {
-		return nullID, err
-	}
-
-	return id, nil
 }
 
 func (r *Repository) CheckToken(ctx context.Context, token []byte) (userID int, err error) {
@@ -147,7 +148,7 @@ func (r *Repository) CheckToken(ctx context.Context, token []byte) (userID int, 
 	_, err = r.pool.Exec(ctx, `UPDATE tokens SET expires_at = $1 WHERE token_hash = $2 AND expires_at < $3`,
 		time.Now().Add(tokenTTL), token, time.Now().Add(tokenThreshold))
 	if err != nil {
-		log.Println(err)
+		slog.Warn("срок токена не продлён", "err", err)
 	}
 
 	return userID, nil
@@ -186,8 +187,8 @@ func (r *Repository) GetUsers(ctx context.Context) ([]*model.UserFromDB, error) 
 
 func (r *Repository) GetGroups(ctx context.Context, userID int) ([]model.GroupFromDB, error) {
 
-	rows, err := r.pool.Query(ctx, `SELECT c.id, c.name FROM chats c 
-										JOIN users_chats uc ON uc.chat_id = c.id 
+	rows, err := r.pool.Query(ctx, `SELECT c.id, c.name FROM chats c
+										JOIN users_chats uc ON uc.chat_id = c.id
 										WHERE c.type = 'group' AND uc.user_id = $1`, userID)
 	if err != nil {
 		return nil, err
@@ -204,14 +205,12 @@ func (r *Repository) GetGroups(ctx context.Context, userID int) ([]model.GroupFr
 
 func (r *Repository) GetChannels(ctx context.Context, userID int) ([]model.ChannelFromDB, error) {
 
-	rows, err := r.pool.Query(ctx, `SELECT c.id, c.name, COALESCE(c.description, '') AS description, uc.role FROM chats c
-										JOIN users_chats uc ON uc.chat_id = c.id 
+	rows, err := r.pool.Query(ctx, `SELECT c.id, c.name, COALESCE(c.description, '') AS description,
+										COALESCE(uc.role, 'member') AS role
+										FROM chats c
+										JOIN users_chats uc ON uc.chat_id = c.id
 										WHERE c.type = 'channel' AND uc.user_id = $1`, userID)
-
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
 		return nil, err
 	}
 
@@ -249,7 +248,11 @@ func (r *Repository) CreatePublicChannel(ctx context.Context, ownerID int, name 
 	row = tx.QueryRow(ctx, `INSERT INTO chats(name, type, owner_id, description, handle) VALUES($1, $2, $3, $4, $5) RETURNING id`,
 		name, "channel", ownerID, description, handle)
 	if err = row.Scan(&id); err != nil {
-		return nullID, err
+		// Проверка выше не спасает от двух одновременных запросов с одним handle.
+		if isUniqueViolation(err) {
+			return nullID, errors1.ErrNameInUse
+		}
+		return nullID, fmt.Errorf("создание канала: %w", err)
 	}
 
 	_, err = tx.Exec(ctx, `INSERT INTO users_chats(chat_id, user_id, role) VALUES($1, $2, $3)`, id, ownerID, ownerRole)
@@ -287,45 +290,74 @@ func (r *Repository) CreatePrivateChannel(ctx context.Context, ownerID int, name
 func (r *Repository) GetChannel(ctx context.Context, handle string) (*model.ChannelFromDB, error) {
 
 	var ch model.ChannelFromDB
-	row := r.pool.QueryRow(ctx, `SELECT id, name, COALESCE(description, '') FROM chats WHERE handle = $1`, handle)
+	row := r.pool.QueryRow(ctx, `SELECT id, name, COALESCE(description, '') FROM chats
+									 WHERE handle = $1 AND type = 'channel'`, handle)
 
 	if err := row.Scan(&ch.ID, &ch.Name, &ch.Description); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, errors1.ErrIncorrectHandle
+			return nil, errors1.ErrChatNotFound
 		}
-		return nil, err
+		return nil, fmt.Errorf("поиск канала: %w", err)
 	}
 
 	return &ch, nil
 }
 
-func (r *Repository) ChatExists(ctx context.Context, from int, to int) (int, bool, error) {
+// FindDirect ищет личный чат пары, ничего не создавая.
+func (r *Repository) FindDirect(ctx context.Context, userID, peerID int) (int, bool, error) {
 
-	row := r.pool.QueryRow(ctx,
-		`SELECT uc.chat_id
-			 FROM users_chats uc
-			 JOIN chats c ON c.id = uc.chat_id AND c.type = 'direct'
-			 WHERE uc.user_id IN ($1, $2)
-			 GROUP BY uc.chat_id
-			 HAVING count(*) = 2
-			 LIMIT 1`, from, to)
+	low, high := orderedPair(userID, peerID)
 
 	var chatID int
-	if err := row.Scan(&chatID); err != nil {
+	err := r.pool.QueryRow(ctx, `SELECT chat_id FROM direct_chats WHERE user_low = $1 AND user_high = $2`,
+		low, high).Scan(&chatID)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nullID, false, nil
 		}
-		return chatID, true, err
+		return nullID, false, fmt.Errorf("поиск личного чата: %w", err)
 	}
 
 	return chatID, true, nil
 }
 
-func (r *Repository) StartChat(ctx context.Context, from, to int) (int, error) {
+// GetOrCreateDirect возвращает личный чат пары и сообщает, создан ли он сейчас.
+// Одновременные вызовы для одной пары сходятся в один чат: второй упирается в
+// первичный ключ direct_chats и берёт чат первого.
+func (r *Repository) GetOrCreateDirect(ctx context.Context, userID, peerID int) (int, bool, error) {
+
+	chatID, ok, err := r.FindDirect(ctx, userID, peerID)
+	if err != nil || ok {
+		return chatID, false, err
+	}
+
+	chatID, created, err := r.createDirect(ctx, userID, peerID)
+	if err != nil || created {
+		return chatID, created, err
+	}
+
+	// Пару успели создать параллельно: наша транзакция откатилась, берём чат,
+	// который создал другой запрос.
+	chatID, ok, err = r.FindDirect(ctx, userID, peerID)
+	if err != nil {
+		return nullID, false, err
+	}
+	if !ok {
+		return nullID, false, fmt.Errorf("личный чат %d-%d пропал сразу после создания", userID, peerID)
+	}
+
+	return chatID, false, nil
+}
+
+// createDirect заводит личный чат. created = false значит, что пару в это же
+// время создал другой запрос, и транзакция откатилась.
+func (r *Repository) createDirect(ctx context.Context, userID, peerID int) (int, bool, error) {
+
+	low, high := orderedPair(userID, peerID)
 
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return nullID, err
+		return nullID, false, fmt.Errorf("создание личного чата: %w", err)
 	}
 	defer func(tx pgx.Tx, ctx context.Context) {
 		_ = tx.Rollback(ctx)
@@ -333,53 +365,98 @@ func (r *Repository) StartChat(ctx context.Context, from, to int) (int, error) {
 
 	var chatID int
 	if err = tx.QueryRow(ctx, `INSERT INTO chats DEFAULT VALUES RETURNING id`).Scan(&chatID); err != nil {
-		return nullID, err
+		return nullID, false, fmt.Errorf("создание личного чата: %w", err)
 	}
 
-	_, err = tx.Exec(ctx, `INSERT INTO users_chats (chat_id, user_id) VALUES ($1, $2), ($1, $3)`, chatID, from, to)
+	_, err = tx.Exec(ctx, `INSERT INTO users_chats (chat_id, user_id) VALUES ($1, $2), ($1, $3)`, chatID, low, high)
 	if err != nil {
-		return nullID, err
+		if isForeignKeyViolation(err) {
+			return nullID, false, errors1.ErrUserDoesntExist
+		}
+		return nullID, false, fmt.Errorf("участники личного чата: %w", err)
 	}
 
-	return chatID, tx.Commit(ctx)
+	err = tx.QueryRow(ctx, `INSERT INTO direct_chats (user_low, user_high, chat_id) VALUES ($1, $2, $3)
+								ON CONFLICT (user_low, user_high) DO NOTHING RETURNING chat_id`,
+		low, high, chatID).Scan(&chatID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nullID, false, nil
+		}
+		return nullID, false, fmt.Errorf("пара личного чата: %w", err)
+	}
+
+	if err = tx.Commit(ctx); err != nil {
+		return nullID, false, fmt.Errorf("создание личного чата: %w", err)
+	}
+
+	return chatID, true, nil
 }
 
-func (r *Repository) SendMessage(ctx context.Context, send protocol.Send, from int) (*protocol.Message, []int, error) {
+// SendMessage сохраняет сообщение и возвращает получателей. Повтор с той же
+// парой (отправитель, client_msg_id) ничего не вставляет: возвращается
+// сохранённое раньше сообщение и duplicate = true.
+func (r *Repository) SendMessage(ctx context.Context, send protocol.Send, from int) (*protocol.Message, []int, bool, error) {
 
-	row := r.pool.QueryRow(ctx, `INSERT INTO messages (chat_id, sender_id, client_msg_id, body, created_at)
+	msg := protocol.Message{ChatID: send.ChatID, SenderID: from, Body: send.Body}
+
+	err := r.pool.QueryRow(ctx, `INSERT INTO messages (chat_id, sender_id, client_msg_id, body, created_at)
 		SELECT $1, $2, $3, $4, now()
 		WHERE EXISTS (SELECT 1 FROM users_chats uc
 			JOIN chats c ON c.id = uc.chat_id
 			WHERE uc.chat_id = $1 AND uc.user_id = $2
 			AND (c.type <> 'channel' OR uc.role IN ('owner', 'admin')))
+		ON CONFLICT (sender_id, client_msg_id) DO NOTHING
 		RETURNING id, created_at`,
-		send.ChatID, from, send.ClientMsgID, send.Body)
-
-	var msg protocol.Message
-	if err := row.Scan(&msg.Id, &msg.Time); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil, errors1.ErrNotChatMember
+		send.ChatID, from, send.ClientMsgID, send.Body).Scan(&msg.Id, &msg.Time)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, false, fmt.Errorf("сохранение сообщения: %w", err)
 		}
-		return nil, nil, err
+		return r.notInserted(ctx, send, from)
 	}
-	msg.ChatID = send.ChatID
-	msg.SenderID = from
-	msg.Body = send.Body
+	msg.Time = msg.Time.UTC()
 
-	_, err := r.pool.Exec(ctx, `UPDATE users_chats SET last_read = $1
+	_, err = r.pool.Exec(ctx, `UPDATE users_chats SET last_read = $1
 									WHERE chat_id = $2 AND user_id = $3`, msg.Id, msg.ChatID, msg.SenderID)
+	if err != nil {
+		slog.Warn("last_read отправителя не обновлён", "chat", msg.ChatID, "err", err)
+	}
 
 	rows, err := r.pool.Query(ctx, `SELECT user_id FROM users_chats WHERE chat_id = $1`, send.ChatID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, fmt.Errorf("получатели сообщения: %w", err)
 	}
 
 	ids, err := pgx.CollectRows(rows, pgx.RowTo[int])
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, fmt.Errorf("получатели сообщения: %w", err)
 	}
 
-	return &msg, ids, nil
+	return &msg, ids, false, nil
+}
+
+// notInserted выясняет, почему INSERT в SendMessage ничего не вставил: это
+// повтор уже сохранённого сообщения или у отправителя нет права писать в чат.
+func (r *Repository) notInserted(ctx context.Context, send protocol.Send, from int) (*protocol.Message, []int, bool, error) {
+
+	msg := protocol.Message{SenderID: from}
+	err := r.pool.QueryRow(ctx, `SELECT id, chat_id, body, created_at FROM messages
+									 WHERE sender_id = $1 AND client_msg_id = $2`,
+		from, send.ClientMsgID).Scan(&msg.Id, &msg.ChatID, &msg.Body, &msg.Time)
+	if err == nil {
+		msg.Time = msg.Time.UTC()
+		return &msg, nil, true, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil, false, fmt.Errorf("поиск повтора сообщения: %w", err)
+	}
+
+	if _, err = r.requireMember(ctx, send.ChatID, from); err != nil {
+		return nil, nil, false, err
+	}
+
+	return nil, nil, false, errors1.ErrNoWriteAccess
 }
 
 func (r *Repository) CreateGroup(ctx context.Context, name string, members []int) (int, error) {
@@ -400,7 +477,7 @@ func (r *Repository) CreateGroup(ctx context.Context, name string, members []int
 	}
 
 	if count != len(members) {
-		return nullID, errors.New("incorrect list of users")
+		return nullID, errors1.ErrUnknownMembers
 	}
 
 	var chatID int
@@ -414,32 +491,33 @@ func (r *Repository) CreateGroup(ctx context.Context, name string, members []int
 		return nullID, err
 	}
 
-	tx.Commit(ctx)
+	if err = tx.Commit(ctx); err != nil {
+		return nullID, fmt.Errorf("создание группы: %w", err)
+	}
 
 	return chatID, nil
 }
 
 func (r *Repository) LoadMessages(ctx context.Context, chatID, from int) ([]protocol.Message, error) {
 
-	var messages []protocol.Message
-	var messageIDs []int
-	rows, err := r.pool.Query(ctx,
-		`SELECT
-    			m.id,
-    			m.chat_id,
-				m.sender_id,
-				m.body,
-				m.created_at
-			 FROM messages m
-			 JOIN users_chats uc ON uc.chat_id = m.chat_id
-			 WHERE m.chat_id = $1 AND m.id > uc.border AND uc.user_id = $2 AND EXISTS (SELECT 1 FROM users_chats WHERE chat_id = $1 AND user_id = $2)
-			 ORDER BY m.created_at, m.id;
-			`, chatID, from)
-
-	if err != nil {
+	if _, err := r.requireMember(ctx, chatID, from); err != nil {
 		return nil, err
 	}
+
+	rows, err := r.pool.Query(ctx,
+		`SELECT m.id, m.chat_id, m.sender_id, m.body, m.created_at
+			 FROM messages m
+			 JOIN users_chats uc ON uc.chat_id = m.chat_id AND uc.user_id = $2
+			 WHERE m.chat_id = $1 AND m.id > COALESCE(uc.border, 0)
+			 ORDER BY m.id`, chatID, from)
+	if err != nil {
+		return nil, fmt.Errorf("история чата: %w", err)
+	}
 	defer rows.Close()
+
+	// Не nil: пустой слайс кодируется в [], а nil — в null, на котором падает фронт.
+	messages := make([]protocol.Message, nullLength)
+	var lastID int
 
 	for rows.Next() {
 		var message protocol.Message
@@ -449,48 +527,57 @@ func (r *Repository) LoadMessages(ctx context.Context, chatID, from int) ([]prot
 			&message.SenderID,
 			&message.Body,
 			&message.Time); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("история чата: %w", err)
 		}
 
+		message.Time = message.Time.UTC()
 		messages = append(messages, message)
-		messageIDs = append(messageIDs, message.Id)
+		lastID = message.Id
 	}
 
 	if err = rows.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("история чата: %w", err)
 	}
 
-	if len(messageIDs) == nullLength {
+	if len(messages) == nullLength {
 		return messages, nil
 	}
 
 	_, err = r.pool.Exec(ctx, `UPDATE users_chats
 								   SET last_read = $1
-								   WHERE chat_id=$2 AND user_id = $3`, slices.Max(messageIDs), chatID, from)
-
+								   WHERE chat_id=$2 AND user_id = $3`, lastID, chatID, from)
 	if err != nil {
-		return messages, err
+		slog.Warn("last_read не обновлён", "chat", chatID, "err", err)
 	}
 
 	return messages, nil
 }
 
+// ClearChat стирает личную переписку у одного участника: запоминает границу,
+// не новее которой история ему больше не отдаётся. Возвращает границу.
 func (r *Repository) ClearChat(ctx context.Context, chatID, userID int) (int, error) {
 
-	var lastRead int
-	row := r.pool.QueryRow(ctx, `SELECT last_read FROM users_chats
-									 WHERE chat_id = $1 AND user_id = $2`, chatID, userID)
-	if err := row.Scan(&lastRead); err != nil {
-		return nullID, err
-	}
-
-	_, err := r.pool.Exec(ctx, `UPDATE users_chats SET last_read = null, border = $1
-									WHERE chat_id = $2 AND user_id = $3`, lastRead, chatID, userID)
+	access, err := r.requireMember(ctx, chatID, userID)
 	if err != nil {
 		return nullID, err
 	}
 
-	return lastRead, nil
+	if access.chatType != directType {
+		return nullID, errors1.ErrNotDirectChat
+	}
+
+	// Граница — последнее сообщение чата на момент запроса. GREATEST: повторная
+	// очистка двигает границу только вперёд.
+	var border int
+	err = r.pool.QueryRow(ctx, `UPDATE users_chats
+		SET border = GREATEST(COALESCE(border, 0), (SELECT COALESCE(MAX(id), 0) FROM messages WHERE chat_id = $1))
+		WHERE chat_id = $1 AND user_id = $2
+		RETURNING border`, chatID, userID).Scan(&border)
+	if err != nil {
+		return nullID, fmt.Errorf("очистка чата: %w", err)
+	}
+
+	return border, nil
 }
 
 func (r *Repository) DeleteMessage(ctx context.Context, userID, messageID, chatID int) error {
@@ -505,57 +592,70 @@ func (r *Repository) DeleteMessage(ctx context.Context, userID, messageID, chatI
 	return nil
 }
 
-func (r *Repository) DeleteChat(ctx context.Context, chatID, userID int) error {
+// DeleteChat удаляет личный чат у обоих участников вместе с сообщениями и
+// возвращает id участников: им сервер разошлёт chat_removed.
+func (r *Repository) DeleteChat(ctx context.Context, chatID, userID int) ([]int, error) {
 
-	var id int
-	row := r.pool.QueryRow(ctx, `SELECT chat_id FROM users_chats uc JOIN chats c ON uc.chat_id = c.id	 
-               					     WHERE chat_id = $1 AND user_id = $2 AND c.type = 'direct'`, chatID, userID)
-
-	if err := row.Scan(&id); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return errors1.ErrWrongChatID
-		}
-		return err
-	}
-
-	_, err := r.pool.Exec(ctx, `DELETE FROM chats WHERE id = $1`, id)
+	access, err := r.requireMember(ctx, chatID, userID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
+	if access.chatType != directType {
+		return nil, errors1.ErrNotDirectChat
+	}
+
+	// Основной запрос видит снимок до DELETE, поэтому участники находятся, хотя
+	// их строки удаляются каскадом в том же запросе.
+	rows, err := r.pool.Query(ctx, `WITH deleted AS (DELETE FROM chats WHERE id = $1 RETURNING id)
+		SELECT uc.user_id FROM users_chats uc JOIN deleted d ON d.id = uc.chat_id`, chatID)
+	if err != nil {
+		return nil, fmt.Errorf("удаление чата: %w", err)
+	}
+
+	members, err := pgx.CollectRows(rows, pgx.RowTo[int])
+	if err != nil {
+		return nil, fmt.Errorf("удаление чата: %w", err)
+	}
+
+	// Пусто — чат удалил второй участник, пока шёл этот запрос.
+	if len(members) == nullLength {
+		return nil, errors1.ErrChatNotFound
+	}
+
+	return members, nil
 }
 
 func (r *Repository) JoinChannel(ctx context.Context, userID, channelID int) (*model.ChannelFromDB, error) {
 
-	var channel model.ChannelFromDB
-	var handle, role *string
+	channel := model.ChannelFromDB{ID: channelID}
+	var public, member bool
 
-	row := r.pool.QueryRow(ctx, `SELECT c.id, c.name, c.handle, uc.role FROM chats c
+	row := r.pool.QueryRow(ctx, `SELECT c.name, c.handle IS NOT NULL, uc.user_id IS NOT NULL, COALESCE(uc.role, 'member')
+									 FROM chats c
 									 LEFT JOIN users_chats uc ON uc.chat_id = c.id AND uc.user_id = $2
 									 WHERE c.id = $1 AND c.type = 'channel'`, channelID, userID)
-	if err := row.Scan(&channel.ID, &channel.Name, &handle, &role); err != nil {
+	if err := row.Scan(&channel.Name, &public, &member, &channel.Role); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, errors1.ErrWrongChatID
+			return nil, errors1.ErrChatNotFound
 		}
-		return nil, err
+		return nil, fmt.Errorf("вступление в канал: %w", err)
 	}
 
 	// Уже в канале: отвечаем текущей ролью, так повторный join не падает
-	if role != nil {
-		channel.Role = *role
+	if member {
 		return &channel, nil
 	}
 
 	// У приватного канала нет handle, вступить в него без приглашения нельзя
-	if handle == nil {
-		return nil, errors1.ErrWrongChatID
+	if !public {
+		return nil, errors1.ErrChatNotFound
 	}
 
 	_, err := r.pool.Exec(ctx, `INSERT INTO users_chats(chat_id, user_id, role) VALUES ($1, $2, $3)
 									ON CONFLICT (user_id, chat_id) DO NOTHING`, channelID, userID, memberRole)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("вступление в канал: %w", err)
 	}
 
 	channel.Role = memberRole
@@ -573,6 +673,40 @@ func (r *Repository) DeleteExpiredTokens(ctx context.Context) (int64, error) {
 	return tag.RowsAffected(), nil
 }
 
+// chatAccess узнаёт тип чата и место пользователя в нём. Чата нет — ErrChatNotFound.
+func (r *Repository) chatAccess(ctx context.Context, chatID, userID int) (chatAccess, error) {
+
+	var access chatAccess
+
+	err := r.pool.QueryRow(ctx, `SELECT c.type, uc.user_id IS NOT NULL, COALESCE(uc.role, '')
+									 FROM chats c
+									 LEFT JOIN users_chats uc ON uc.chat_id = c.id AND uc.user_id = $2
+									 WHERE c.id = $1`, chatID, userID).Scan(&access.chatType, &access.member, &access.role)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return access, errors1.ErrChatNotFound
+		}
+		return access, fmt.Errorf("доступ к чату: %w", err)
+	}
+
+	return access, nil
+}
+
+// requireMember пропускает дальше, только если чат есть и пользователь в нём состоит.
+func (r *Repository) requireMember(ctx context.Context, chatID, userID int) (chatAccess, error) {
+
+	access, err := r.chatAccess(ctx, chatID, userID)
+	if err != nil {
+		return access, err
+	}
+
+	if !access.member {
+		return access, errors1.ErrNotChatMember
+	}
+
+	return access, nil
+}
+
 func scanRows(rows pgx.Rows, users []*model.UserFromDB) ([]*model.UserFromDB, error) {
 
 	for rows.Next() {
@@ -583,7 +717,6 @@ func scanRows(rows pgx.Rows, users []*model.UserFromDB) ([]*model.UserFromDB, er
 			&user.ID,
 			&user.Name,
 			&user.Login); err != nil {
-			log.Println(err)
 			return nil, err
 		}
 
@@ -595,4 +728,26 @@ func scanRows(rows pgx.Rows, users []*model.UserFromDB) ([]*model.UserFromDB, er
 	}
 
 	return users, nil
+}
+
+// orderedPair упорядочивает пару, чтобы (A, B) и (B, A) были одной строкой direct_chats.
+func orderedPair(a, b int) (int, int) {
+
+	if a < b {
+		return a, b
+	}
+
+	return b, a
+}
+
+func isUniqueViolation(err error) bool {
+
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == uniqueViolation
+}
+
+func isForeignKeyViolation(err error) bool {
+
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == foreignKeyViolation
 }

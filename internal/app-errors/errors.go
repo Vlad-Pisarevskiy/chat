@@ -2,52 +2,65 @@ package app_errors
 
 import "errors"
 
-var ErrLoginNotFound = errors.New("login is not found in DB")
+// Validation — ошибка во входных данных. Её текст написан для человека, и
+// сервер отдаёт его как есть: HTTP-ручки с кодом 400, сокет — с bad_request.
+type Validation struct {
+	text string
+}
 
-var ErrInvalidToken = errors.New("token does not exist")
+func (e *Validation) Error() string {
+	return e.text
+}
 
-var ErrEmptyLogin = errors.New("login is empty")
+func newValidation(text string) error {
+	return &Validation{text: text}
+}
 
-var ErrShortLogin = errors.New("login is too short")
+// IsValidation сообщает, что ошибку вызвали входные данные, а не сбой сервера.
+func IsValidation(err error) bool {
+	var v *Validation
+	return errors.As(err, &v)
+}
 
-var ErrLongLogin = errors.New("login is too long")
+// Входные данные.
+var (
+	ErrEmptyLogin          = newValidation("логин не указан")
+	ErrShortLogin          = newValidation("логин короче 3 символов")
+	ErrLongLogin           = newValidation("логин длиннее 32 символов")
+	ErrLoginFormat         = newValidation("логин может состоять только из латинских букв, цифр и _")
+	ErrEmptyPassword       = newValidation("пароль не указан")
+	ErrShortPassword       = newValidation("пароль короче 8 символов")
+	ErrLongPassword        = newValidation("пароль слишком длинный")
+	ErrEmptyName           = newValidation("имя не указано")
+	ErrLongName            = newValidation("имя длиннее 50 символов")
+	ErrIncorrectData       = newValidation("некорректный запрос")
+	ErrIncorrectNameLength = newValidation("название должно быть от 1 до 50 символов")
+	ErrTooLongDescription  = newValidation("описание длиннее 255 символов")
+	ErrInvalidHandle       = newValidation("имя канала: от 5 до 32 символов, латинские буквы, цифры и _, первая — буква")
+	ErrNoMembers           = newValidation("выберите хотя бы одного участника")
+	ErrUnknownMembers      = newValidation("среди участников есть несуществующий пользователь")
+	ErrNotDirectChat       = newValidation("это работает только для личной переписки")
+	ErrPeerIsSelf          = newValidation("нельзя написать самому себе")
+	ErrBadFrame            = newValidation("кадр не разобран")
+	ErrUnknownFrame        = newValidation("неизвестный тип кадра")
+	ErrInvalidClientMsgID  = newValidation("client_msg_id должен быть UUID")
+	ErrChatOrPeer          = newValidation("нужно ровно одно из полей chat_id и peer_id")
+	ErrEmptyBody           = newValidation("пустое сообщение")
+	ErrLongBody            = newValidation("сообщение длиннее 4096 символов")
+)
 
-var ErrEmptyPassword = errors.New("password is empty")
+// Доступ и существование.
+var (
+	ErrIncorrectLoginData = errors.New("неверный логин или пароль")
+	ErrInvalidToken       = errors.New("сессия не найдена или истекла")
+	ErrExistsLogin        = errors.New("логин уже занят")
+	ErrNameInUse          = errors.New("имя канала уже занято")
+	ErrChatNotFound       = errors.New("чат не найден")
+	ErrUserDoesntExist    = errors.New("пользователь не найден")
+	ErrNotChatMember      = errors.New("вы не участник этого чата")
+	ErrNoWriteAccess      = errors.New("в канал пишут только владелец и админы")
+)
 
-var ErrShortPassword = errors.New("password is too short")
+var ErrEmptyDatabasePath = errors.New("не задан DATABASE_URL")
 
-var ErrLongPassword = errors.New("password is too long")
-
-var ErrEmptyName = errors.New("name is empty")
-
-var ErrLongName = errors.New("name is too long")
-
-var ErrExistsLogin = errors.New("login is already exists")
-
-var ErrIncorrectLoginData = errors.New("login or password is incorrect")
-
-var ErrEmptyDatabasePath = errors.New("empty database path")
-
-var ErrIncorrectData = errors.New("incorrect data")
-
-var ErrUserDoesntExist = errors.New("user doesnt exist")
-
-var ErrNotChatMember = errors.New("user is not a chat member")
-
-var ErrNameInUse = errors.New("channel name is already in use")
-
-var ErrEmptyHandle = errors.New("handle is empty")
-
-var ErrLongHandle = errors.New("handle is too long")
-
-var ErrInvalidHandle = errors.New("handle format is incorrect")
-
-var ErrIncorrectNameLength = errors.New("name length is incorrect")
-
-var ErrIncorrectMembersCount = errors.New("members can`t be less then 2")
-
-var ErrTooLongDescription = errors.New("description is too long")
-
-var ErrWrongChatID = errors.New("incorrect chat id")
-
-var ErrIncorrectHandle = errors.New("handle does not exists")
+var ErrLoginNotFound = errors.New("логин не найден")
