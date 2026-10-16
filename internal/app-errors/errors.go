@@ -40,6 +40,8 @@ var ErrEmptyHandle = errors.New("handle is empty")
 
 var ErrLongHandle = errors.New("handle is too long")
 
+var ErrInvalidHandle = errors.New("handle format is incorrect")
+
 var ErrIncorrectNameLength = errors.New("name length is incorrect")
 
 var ErrIncorrectMembersCount = errors.New("members can`t be less then 2")

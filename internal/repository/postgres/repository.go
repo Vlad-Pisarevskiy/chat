@@ -204,7 +204,7 @@ func (r *Repository) GetGroups(ctx context.Context, userID int) ([]model.GroupFr
 
 func (r *Repository) GetChannels(ctx context.Context, userID int) ([]model.ChannelFromDB, error) {
 
-	rows, err := r.pool.Query(ctx, `SELECT c.id, c.name FROM chats c
+	rows, err := r.pool.Query(ctx, `SELECT c.id, c.name, COALESCE(c.description, '') AS description, uc.role FROM chats c
 										JOIN users_chats uc ON uc.chat_id = c.id 
 										WHERE c.type = 'channel' AND uc.user_id = $1`, userID)
 
@@ -287,7 +287,7 @@ func (r *Repository) CreatePrivateChannel(ctx context.Context, ownerID int, name
 func (r *Repository) GetChannel(ctx context.Context, handle string) (*model.ChannelFromDB, error) {
 
 	var ch model.ChannelFromDB
-	row := r.pool.QueryRow(ctx, `SELECT id, name, description FROM chats WHERE handle = $1`, handle)
+	row := r.pool.QueryRow(ctx, `SELECT id, name, COALESCE(description, '') FROM chats WHERE handle = $1`, handle)
 
 	if err := row.Scan(&ch.ID, &ch.Name, &ch.Description); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -348,7 +348,10 @@ func (r *Repository) SendMessage(ctx context.Context, send protocol.Send, from i
 
 	row := r.pool.QueryRow(ctx, `INSERT INTO messages (chat_id, sender_id, client_msg_id, body, created_at)
 		SELECT $1, $2, $3, $4, now()
-		WHERE EXISTS (SELECT 1 FROM users_chats WHERE chat_id = $1 AND user_id = $2)
+		WHERE EXISTS (SELECT 1 FROM users_chats uc
+			JOIN chats c ON c.id = uc.chat_id
+			WHERE uc.chat_id = $1 AND uc.user_id = $2
+			AND (c.type <> 'channel' OR uc.role IN ('owner', 'admin')))
 		RETURNING id, created_at`,
 		send.ChatID, from, send.ClientMsgID, send.Body)
 
@@ -457,6 +460,10 @@ func (r *Repository) LoadMessages(ctx context.Context, chatID, from int) ([]prot
 		return nil, err
 	}
 
+	if len(messageIDs) == nullLength {
+		return messages, nil
+	}
+
 	_, err = r.pool.Exec(ctx, `UPDATE users_chats
 								   SET last_read = $1
 								   WHERE chat_id=$2 AND user_id = $3`, slices.Max(messageIDs), chatID, from)
@@ -519,16 +526,41 @@ func (r *Repository) DeleteChat(ctx context.Context, chatID, userID int) error {
 	return nil
 }
 
-func (r *Repository) JoinChannel(ctx context.Context, userID, channelID int) error {
+func (r *Repository) JoinChannel(ctx context.Context, userID, channelID int) (*model.ChannelFromDB, error) {
 
-	_, err := r.pool.Exec(ctx, `INSERT INTO users_chats(chat_id, user_id, role) VALUES ($1, $2, $3)`,
-		channelID, userID, memberRole)
+	var channel model.ChannelFromDB
+	var handle, role *string
 
-	if err != nil {
-		return err
+	row := r.pool.QueryRow(ctx, `SELECT c.id, c.name, c.handle, uc.role FROM chats c
+									 LEFT JOIN users_chats uc ON uc.chat_id = c.id AND uc.user_id = $2
+									 WHERE c.id = $1 AND c.type = 'channel'`, channelID, userID)
+	if err := row.Scan(&channel.ID, &channel.Name, &handle, &role); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, errors1.ErrWrongChatID
+		}
+		return nil, err
 	}
 
-	return nil
+	// Уже в канале: отвечаем текущей ролью, так повторный join не падает
+	if role != nil {
+		channel.Role = *role
+		return &channel, nil
+	}
+
+	// У приватного канала нет handle, вступить в него без приглашения нельзя
+	if handle == nil {
+		return nil, errors1.ErrWrongChatID
+	}
+
+	_, err := r.pool.Exec(ctx, `INSERT INTO users_chats(chat_id, user_id, role) VALUES ($1, $2, $3)
+									ON CONFLICT (user_id, chat_id) DO NOTHING`, channelID, userID, memberRole)
+	if err != nil {
+		return nil, err
+	}
+
+	channel.Role = memberRole
+
+	return &channel, nil
 }
 
 func (r *Repository) DeleteExpiredTokens(ctx context.Context) (int64, error) {

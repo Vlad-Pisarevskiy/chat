@@ -138,6 +138,7 @@ func (s *Server) ClearChat(c *gin.Context) {
 		c.JSON(http.StatusBadGateway, gin.H{
 			"error": err.Error(),
 		})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -165,12 +166,26 @@ func (s *Server) JoinChannel(c *gin.Context) {
 		ChannelID: channelID,
 	}
 
-	if err = s.service.JoinChannel(c.Request.Context(), join); err != nil {
-		//TODO: статус ошибки
+	joined, err := s.service.JoinChannel(c.Request.Context(), join)
+	if err != nil {
+		if errors.Is(err, errors1.ErrWrongChatID) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": err.Error(),
+		})
 		return
 	}
 
-	c.Status(http.StatusOK)
+	c.JSON(http.StatusOK, gin.H{
+		"chat_id": joined.ID,
+		"name":    joined.Name,
+		"role":    joined.Role,
+	})
 }
 
 func (s *Server) DeleteChat(c *gin.Context) {
@@ -209,6 +224,7 @@ func (s *Server) DeleteChat(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": err.Error(),
 			})
+			return
 		}
 		c.Status(http.StatusBadRequest)
 		return
@@ -218,6 +234,7 @@ func (s *Server) DeleteChat(c *gin.Context) {
 		c.JSON(http.StatusBadGateway, gin.H{
 			"error": err.Error(),
 		})
+		return
 	}
 
 	c.Status(http.StatusNoContent)
@@ -233,7 +250,7 @@ func (s *Server) DeleteMessage(c *gin.Context) {
 		return
 	}
 
-	chat := c.Param(peerID)
+	chat := c.Param(chatIdKey)
 	if chat == emptyChat {
 		c.Status(http.StatusBadRequest)
 		return
@@ -250,6 +267,7 @@ func (s *Server) DeleteMessage(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": err.Error(),
 		})
+		return
 	}
 
 	deleteRequest.ChatID = chatID
@@ -257,6 +275,10 @@ func (s *Server) DeleteMessage(c *gin.Context) {
 
 	if err = s.service.DeleteMessage(c.Request.Context(), deleteRequest); err != nil {
 		//TODO: проверка на тип ошибки
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": err.Error(),
+		})
+		return
 	}
 
 	c.Status(http.StatusOK)
@@ -345,6 +367,7 @@ func (s *Server) GetPeer(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": err.Error(),
 		})
+		return
 	}
 
 	chatID, exist, err := s.service.FindChat(c.Request.Context(), userID.(int), id)
@@ -352,6 +375,7 @@ func (s *Server) GetPeer(c *gin.Context) {
 		c.JSON(http.StatusBadGateway, gin.H{
 			"error": err.Error(),
 		})
+		return
 	}
 
 	if !exist {
@@ -412,6 +436,12 @@ func (s *Server) Chats(c *gin.Context) {
 	}
 
 	channels, err := s.service.GetChannels(c.Request.Context(), userID.(int))
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
 
 	online := s.hub.OnlineUsers()
 
@@ -432,12 +462,14 @@ func (s *Server) Logout(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": err.Error(),
 		})
+		return
 	}
 
 	if err = s.service.Logout(c.Request.Context(), token); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": err.Error(),
 		})
+		return
 	}
 
 	c.Status(http.StatusOK)

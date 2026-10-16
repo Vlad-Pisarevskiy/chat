@@ -10,8 +10,6 @@ const (
 	nullLength           = 0
 	minNameLength        = 1
 	maxNameLength        = 50
-	minHandleLength      = 2
-	maxHandleLength      = 20
 	maxDescriptionLength = 255
 
 	emptyID    = 0

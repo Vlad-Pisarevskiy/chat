@@ -3,7 +3,6 @@ package service
 import (
 	errors1 "chatflow/internal/app-errors"
 	"context"
-	"fmt"
 	"regexp"
 	"unicode/utf8"
 
@@ -104,20 +103,12 @@ func verifyChannelDescription(desc string) error {
 	return nil
 }
 
+var handleRegexp = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{4,31}$`)
+
 func verifyChannelHandle(handle string) error {
 
-	re, err := regexp.Compile(fmt.Sprintf(`^[A-Za-z][A-Za-z0-9_]{%d, %d}$`,
-		minHandleLength, maxHandleLength))
-	if err != nil {
-		return err
-	}
-
-	if re.MatchString(handle) {
-		return nil
-	}
-
-	if len(handle) > maxHandleLength {
-		return errors1.ErrLongHandle
+	if !handleRegexp.MatchString(handle) {
+		return errors1.ErrInvalidHandle
 	}
 
 	return nil

@@ -6,7 +6,7 @@ const (
 	readBuffer    = 1024
 	writeBuffer   = 1024
 	msgBufferSize = 256
-	readLimit     = 1024
+	readLimit     = 32 * 1024
 	cookieMaxAge  = int((time.Hour * 24 * 30) / time.Second)
 
 	readDeadline  = time.Second * 30

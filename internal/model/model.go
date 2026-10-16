@@ -15,11 +15,12 @@ type UserFromDB struct {
 
 type GroupFromDB struct {
 	ID   int    `json:"group_id" db:"id"`
-	Name string `json:"group_name" db:"label"`
+	Name string `json:"group_name" db:"name"`
 }
 
 type ChannelFromDB struct {
 	ID          int    `json:"channel_id" db:"id"`
 	Name        string `json:"name" db:"name"`
-	Description string `json:"description" db:"description"`
+	Description string `json:"description,omitempty" db:"description"`
+	Role        string `json:"role,omitempty" db:"role"`
 }

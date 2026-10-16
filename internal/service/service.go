@@ -143,7 +143,7 @@ func (s *Service) CreateChannel(ctx context.Context, ownerID int, channel Channe
 	return s.db.CreatePrivateChannel(ctx, ownerID, channel.Name, channel.Description)
 }
 
-func (s *Service) JoinChannel(ctx context.Context, join JoinChannel) error {
+func (s *Service) JoinChannel(ctx context.Context, join JoinChannel) (*model.ChannelFromDB, error) {
 
 	return s.db.JoinChannel(ctx, join.UserID, join.ChannelID)
 }
