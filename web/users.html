@@ -146,6 +146,24 @@
     color: #0088b0;
   }
   .msg.sending { opacity: .55; }
+  /* Не ушло: пузырь остаётся на месте, чтобы текст не пропал, а под ним —
+     причина и, если есть смысл, «Повторить». */
+  .msg.failed { box-shadow: 0 0 0 2px #d64545; }
+  .msg .failure {
+    display: block;
+    margin-top: 4px;
+    font-size: 12px;
+  }
+  .msg .retry {
+    margin-left: 8px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+  }
   .msg .at {
     margin-left: 8px;
     font-size: 11px;
@@ -429,7 +447,7 @@
   <p id="placeholder">Выберите чат слева, чтобы начать переписку</p>
 
   <form id="form" hidden>
-    <input id="text" type="text" placeholder="Сообщение" autocomplete="off" required>
+    <input id="text" type="text" placeholder="Сообщение" autocomplete="off" maxlength="4096" required>
     <button type="submit">Отправить</button>
   </form>
 </section>
@@ -840,7 +858,9 @@ function timeElement(iso) {
 
 function bubble(message) {
   const li = document.createElement("li");
-  li.className = "msg " + message.kind + (message.state === "sending" ? " sending" : "");
+  li.className = "msg " + message.kind;
+  if (message.state === "sending") li.classList.add("sending");
+  if (message.state === "failed") li.classList.add("failed");
 
   // В группе без подписи не понять, кто написал: собеседников много,
   // а различаются реплики только цветом.
@@ -859,10 +879,41 @@ function bubble(message) {
   const at = message.at ? timeElement(message.at) : null;
   if (at) li.append(at);
 
-  // По этому атрибуту ack находит нарисованный пузырь и снимает с него «отправляется».
+  if (message.state === "failed") li.append(failureNote(message));
+
+  // По этому атрибуту ack и error находят нарисованный пузырь и перерисовывают его.
   if (message.clientMsgId) li.dataset.cmid = message.clientMsgId;
 
   return li;
+}
+
+// Под непрошедшим сообщением — причина от сервера и, после сбоя на его
+// стороне, кнопка повтора. После forbidden или bad_request повтор дал бы ту же
+// ошибку, поэтому кнопки там нет.
+function failureNote(message) {
+  const el = document.createElement("span");
+  el.className = "failure";
+  el.textContent = "Не отправлено: " + (message.error || "ошибка сервера");
+
+  if (message.retryable) {
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "retry";
+    retry.textContent = "Повторить";
+    el.append(retry);
+  }
+
+  return el;
+}
+
+// Своё сообщение сменило состояние (ack, ошибка, повтор) — перерисовываем его
+// пузырь. Пузыря нет, если диалог сейчас не открыт; тогда новое состояние
+// покажется при следующем открытии: лента рисуется из тех же объектов.
+function updateBubble(message) {
+  if (!message.clientMsgId) return;
+
+  const el = messagesEl.querySelector('[data-cmid="' + CSS.escape(message.clientMsgId) + '"]');
+  if (el) el.replaceWith(bubble(message));
 }
 
 function scrollDown() {
@@ -934,6 +985,12 @@ function connect() {
     failedAttempts = 0;
     reconnectDelay = 1000;
     setStatus("на связи", true);
+
+    // Всё, что не получило ack до обрыва, уходит заново. Дошло ли оно до
+    // сервера, отсюда не узнать, а повтор с тем же client_msg_id дубля не даст.
+    for (const message of pending.values()) {
+      if (message.state === "sending") transmit(message);
+    }
   });
 
   socket.addEventListener("message", (event) => receive(event.data));
@@ -979,7 +1036,8 @@ function receive(raw) {
   if (frame.type === "message") onMessage(payload);
   else if (frame.type === "ack") onAck(payload);
   else if (frame.type === "presence") onPresence(payload);
-  else if (frame.type === "error") note(payload.description || "ошибка сервера");
+  else if (frame.type === "error") onError(payload);
+  else if (frame.type === "chat_added") onChatAdded(payload);
   else if (frame.type === "chat_removed") removeChat(payload.chat_id);
   else if (frame.type === "chat_cleared") clearChat(payload.chat_id, Number(payload.up_to_message_id));
 }
@@ -1023,14 +1081,11 @@ function onAck(payload) {
   if (!message) return;
   pending.delete(payload.client_msg_id);
 
-  // Сообщение уходило по peer_id — здесь мы впервые узнаём id чата. Без этой
-  // связки каждая следующая отправка снова шла бы по peer_id, а история не
-  // загрузилась бы вовсе: ей нужен chat_id.
-  //
-  // Проверка на положительное число, а не на undefined: сервер сейчас не
-  // заполняет chat_id в ack, и оттуда приходит ноль. Связаться по нулю значит
-  // отправлять следующие сообщения с chat_id: 0, а такой кадр сервер молча
-  // выбрасывает — вся переписка обрывалась бы после первой реплики.
+  // Сообщение уходило по peer_id — из ack мы узнаём id чата, если его раньше
+  // не принёс chat_added. Без этой связки каждая следующая отправка снова шла
+  // бы по peer_id, а история не загрузилась бы вовсе: ей нужен chat_id.
+  // Положительное число, а не просто «есть»: по нулю следующие сообщения
+  // ушли бы в несуществующий чат.
   if (payload.chat_id > 0 && chatIdByKey.get(message.key) === undefined && !removedChats.has(payload.chat_id)) {
     bindChat(payload.chat_id, message.key);
     if (currentKey === message.key) currentChatId = payload.chat_id;
@@ -1038,17 +1093,62 @@ function onAck(payload) {
 
   message.state = "sent";
   message.id = payload.message_id; // с этого момента своя реплика тоже узнаётся в истории
-
-  const el = messagesEl.querySelector('[data-cmid="' + CSS.escape(payload.client_msg_id) + '"]');
-  if (el) el.classList.remove("sending");
+  message.error = undefined;
+  message.retryable = false;
 
   // Часы вкладки и часы сервера расходятся, а порядок в ленте задаёт сервер.
   // Поэтому показанное время приводим к серверному, как только оно известно.
-  if (payload.time) {
-    message.at = payload.time;
-    const at = timeElement(payload.time);
-    const old = el && el.querySelector("time.at");
-    if (at && old) old.replaceWith(at);
+  if (payload.time) message.at = payload.time;
+
+  updateBubble(message);
+}
+
+// Ошибка с client_msg_id — ответ на конкретный send: пузырь помечается «не
+// отправлено». Без client_msg_id ошибка ни к чему не привязана и показывается
+// заметкой в открытой ленте.
+function onError(payload) {
+  const message = payload.client_msg_id ? pending.get(payload.client_msg_id) : undefined;
+  if (!message) {
+    note(payload.description || "ошибка сервера");
+    return;
+  }
+
+  message.state = "failed";
+  message.error = payload.description;
+
+  // Повтор имеет смысл только после сбоя на сервере: на тот же кадр
+  // forbidden или bad_request придут снова. Такое сообщение убираем из
+  // pending, иначе оно уходило бы заново после каждого переподключения.
+  message.retryable = payload.code === "internal";
+  if (!message.retryable) pending.delete(payload.client_msg_id);
+
+  updateBubble(message);
+}
+
+// Чат, о котором страница ещё не знает: меня добавили в группу, я вступил в
+// канал или создал его с другого устройства, завёлся личный чат. Кадр приходит
+// раньше первого message из этого чата. Повтор безвреден: о своём создании
+// узнаём и из ответа HTTP, и из кадра.
+function onChatAdded(payload) {
+  const chatId = Number(payload.chat_id);
+  if (!chatId || removedChats.has(chatId)) return;
+
+  if (payload.kind === "group") {
+    addGroup(chatId, payload.name || "Группа");
+    return;
+  }
+
+  if (payload.kind === "channel") {
+    addChannel(chatId, payload.name || "Канал", payload.role || "member");
+    return;
+  }
+
+  if (payload.kind === "direct") {
+    const key = userKey(payload.peer_id);
+    if (keyByChat.has(chatId) || chatIdByKey.has(key)) return;
+
+    bindChat(chatId, key);
+    if (currentKey === key) currentChatId = chatId;
   }
 }
 
@@ -1069,11 +1169,6 @@ formEl.addEventListener("submit", (event) => {
   const text = textEl.value.trim();
   if (!text || !currentKey) return;
 
-  if (!socket || socket.readyState !== WebSocket.OPEN) {
-    note("Нет связи с сервером, сообщение не отправлено");
-    return;
-  }
-
   // Запоминаем, куда пишем: пока создаётся чат, пользователь может уйти в другой диалог.
   const key = currentKey;
 
@@ -1089,21 +1184,49 @@ formEl.addEventListener("submit", (event) => {
   // сервер счёл бы новое сообщение ретраем старого и молча его потерял.
   const clientMsgId = crypto.randomUUID();
 
+  // from не шлём: отправителя сервер знает сам из токена, клиенту тут верить нельзя.
+  // Кадр храним вместе с сообщением: повтор после обрыва уходит ровно таким же.
+  const frame = chatId === undefined
+    ? { peer_id: Number(peerIdOf(key)), body: text, client_msg_id: clientMsgId }
+    : { chat_id: chatId, body: text, client_msg_id: clientMsgId };
+
   // Ключ кладём в pending: в ack диалога нет, а связать с ним чат надо.
   // Время своё, по часам вкладки: пузырь рисуется до ответа сервера. В ack
   // придёт то, что реально записано в базу, и заменит эту оценку.
-  const message = { kind: "mine", text: text, state: "sending", clientMsgId: clientMsgId, key: key, at: new Date().toISOString() };
+  const message = { kind: "mine", text: text, state: "sending", clientMsgId: clientMsgId, key: key, frame: frame, at: new Date().toISOString() };
   pending.set(clientMsgId, message);
   push(key, message);
-
-  // from не шлём: отправителя сервер знает сам из токена, клиенту тут верить нельзя.
-  socket.send(JSON.stringify({
-    type: "send",
-    payload: chatId === undefined
-      ? { peer_id: Number(peerIdOf(key)), body: text, client_msg_id: clientMsgId }
-      : { chat_id: chatId, body: text, client_msg_id: clientMsgId },
-  }));
+  transmit(message);
 });
+
+// Нет связи — кадр не уходит, но сообщение остаётся в pending в состоянии
+// «отправляется». После переподключения оно уйдёт само (см. connect).
+function transmit(message) {
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+  socket.send(JSON.stringify({ type: "send", payload: message.frame }));
+}
+
+messagesEl.addEventListener("click", (event) => {
+  const button = event.target.closest(".retry");
+  if (!button) return;
+
+  const li = button.closest("[data-cmid]");
+  if (li) retry(li.dataset.cmid);
+});
+
+// Повтор с тем же client_msg_id: если первая попытка всё-таки сохранилась,
+// сервер вернёт прежний ack, а не заведёт второе сообщение.
+function retry(clientMsgId) {
+  const message = pending.get(clientMsgId);
+  if (!message || message.state !== "failed") return;
+
+  message.state = "sending";
+  message.error = undefined;
+  message.retryable = false;
+
+  updateBubble(message);
+  transmit(message);
+}
 
 connect();
 
@@ -1882,7 +2005,7 @@ async function joinChannel(channel) {
   // Как у создания: вступление состоялось, даже если тело не разобралось.
   // Название тогда берём из карточки, а роль у вступившего — подписчик.
   const name = (payload && payload.name) || channel.name;
-  addChannel(chatId, name, (payload && payload.role) || "subscriber");
+  addChannel(chatId, name, (payload && payload.role) || "member");
 
   // Окно закрыли, пока шёл запрос, — человек уже занят другим, и выдёргивать
   // его в канал не стоит. Строка в списке и так появилась.
@@ -2046,7 +2169,7 @@ function clearChat(chatId, upTo) {
   // которой относились. Заодно это делает повторный вызов безвредным: на свой
   // clear приходят и ответ, и кадр, а заметка останется одна.
   history.set(key, (history.get(key) || []).filter(
-    (message) => message.id === undefined ? message.state === "sending" : message.id > upTo));
+    (message) => message.id === undefined ? message.state === "sending" || message.state === "failed" : message.id > upTo));
 
   const button = itemByKey(key);
   if (button) button.querySelector(".unread").hidden = true;

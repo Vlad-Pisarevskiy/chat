@@ -107,7 +107,8 @@ form.addEventListener("submit", async (event) => {
       form.hidden = true;
       message.dataset.ok = "";
       message.textContent = "Вы вошли";
-      location.assign("/users");
+      // Со слэшем: маршрут объявлен как /users/, на /users gin ответил бы редиректом.
+      location.assign("/users/");
       return;
     }
 
@@ -119,11 +120,11 @@ form.addEventListener("submit", async (event) => {
   submit.disabled = false;
 });
 
-// Login кладёт текст в "error:", Register — в "error"; у пустого тела нет ни того, ни другого.
+// Сервер кладёт текст ошибки в "error"; у пустого тела его нет.
 async function errorText(response) {
   try {
     const body = await response.json();
-    const text = body["error"] || body["error:"];
+    const text = body["error"];
     if (typeof text === "string" && text) return text;
   } catch {}
   return "Ошибка " + response.status;
