@@ -37,6 +37,10 @@ CREATE TABLE images
     data         BYTEA NOT NULL
 );
 
+-- Внешний ключ индекса сам не создаёт. Без него каскадное удаление чата и
+-- проверка доступа к картинке по чату читали бы всю таблицу с байтами.
+CREATE INDEX images_chat_id_idx ON images (chat_id);
+
 CREATE TABLE messages
 (
     id        BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
