@@ -23,7 +23,7 @@ CREATE TABLE users_chats
     user_id   BIGINT REFERENCES users (id) ON DELETE CASCADE,
     last_read BIGINT,
     border BIGINT DEFAULT 0,
-    role TEXT NOT NULL DEFAULT 'member' CHECK(role IN ('member', 'owner', 'admin')),
+    role TEXT DEFAULT 'member' CHECK(role IN ('member', 'owner', 'admin')),
     PRIMARY KEY (user_id, chat_id)
 );
 
