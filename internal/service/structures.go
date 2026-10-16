@@ -51,9 +51,3 @@ type SentMessage struct {
 	Recipients []int
 	Duplicate  bool
 }
-
-type ChannelFromDB struct {
-	chatID      int
-	name        string
-	description string
-}

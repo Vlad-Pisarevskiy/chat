@@ -202,12 +202,6 @@ func (s *Service) FindUserByID(ctx context.Context, id int) (*model.UserFromDB, 
 	return user, nil
 }
 
-func (s *Service) GetUsers(ctx context.Context) ([]*model.UserFromDB, error) {
-
-	return s.db.GetUsers(ctx)
-
-}
-
 func (s *Service) GetUsersExcept(ctx context.Context, id int) ([]*model.UserFromDB, error) {
 
 	return s.db.GetUsersExcept(ctx, id)
