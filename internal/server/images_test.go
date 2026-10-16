@@ -546,6 +546,83 @@ func TestSendImageRetry(t *testing.T) {
 	})
 }
 
+// Тот же client_msg_id уже занят текстом от этого отправителя: картинка не
+// сохраняется и не рассылается, в ответ — данные текстового сообщения, как на
+// повтор send.
+func TestSendImageRetryOfText(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+
+	a, b := e.newUser(t), e.newUser(t)
+	chatID := e.directChat(t, a, b)
+
+	ac, bc := e.dial(t, a), e.dial(t, b)
+
+	clientMsgID := newUUID(t)
+	ac.write(t, map[string]any{"type": "send", "payload": map[string]any{
+		"chat_id": chatID, "body": "сначала текст", "client_msg_id": clientMsgID,
+	}})
+
+	f := ac.next(t)
+	if f.Type != "ack" {
+		t.Fatalf("ждали ack, пришёл %s %s", f.Type, f.Payload)
+	}
+
+	var ack ackPayload
+	if err := json.Unmarshal(f.Payload, &ack); err != nil {
+		t.Fatal(err)
+	}
+	if ack.ClientMsgID != clientMsgID || ack.ChatID != chatID || ack.MessageID == 0 {
+		t.Fatalf("ack %s", f.Payload)
+	}
+
+	for _, conn := range []*wsConn{ac, bc} {
+		if f = conn.next(t); f.Type != "message" {
+			t.Fatalf("ждали message, пришёл %s %s", f.Type, f.Payload)
+		}
+	}
+
+	before := countRows(t, `SELECT count(*) FROM messages WHERE chat_id = $1`, chatID)
+
+	status, body := e.postImage(t, a, toChat(chatID, clientMsgID, "потом картинка"), pngFile(t))
+	if status != http.StatusOK {
+		t.Fatalf("картинка с занятым client_msg_id: %d %s, ждали 200", status, body)
+	}
+
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("ответ не JSON: %s", body)
+	}
+	if _, ok := got["image_id"]; ok {
+		t.Fatalf("в ответе на текстовое сообщение есть image_id: %s", body)
+	}
+	if intField(t, got, "message_id") != ack.MessageID || intField(t, got, "chat_id") != ack.ChatID {
+		t.Fatalf("ответ %s, ждали message_id %d и chat_id %d из ack", body, ack.MessageID, ack.ChatID)
+	}
+
+	var gotTime string
+	if err := json.Unmarshal(got["time"], &gotTime); err != nil || gotTime != ack.Time {
+		t.Fatalf("time в ответе %s, ждали %q из ack", got["time"], ack.Time)
+	}
+
+	if n := imagesInChat(t, chatID); n != 0 {
+		t.Fatalf("картинок в чате %d, ждали 0", n)
+	}
+	if n := countRows(t, `SELECT count(*) FROM messages WHERE sender_id = $1 AND client_msg_id = $2 AND image_id IS NULL`,
+		a.id, clientMsgID); n != 1 {
+		t.Fatalf("текстовых сообщений с этим client_msg_id %d, ждали 1", n)
+	}
+	if n := countRows(t, `SELECT count(*) FROM messages WHERE chat_id = $1`, chatID); n != before {
+		t.Fatalf("сообщений в чате %d, ждали %d", n, before)
+	}
+
+	// Второго message нет: сразу за первым — барьер.
+	barrier := e.createGroup(t, a, b)
+	for _, conn := range []*wsConn{ac, bc} {
+		conn.expectBarrier(t, barrier)
+	}
+}
+
 func requireSameJSON(t *testing.T, got, want []byte) {
 	t.Helper()
 
