@@ -37,6 +37,7 @@ type Message struct {
 	ChatID   int       `json:"chat_id"`
 	SenderID int       `json:"sender_id"`
 	Body     string    `json:"body"`
+	ImageID  int       `json:"image_id,omitempty"`
 	Time     time.Time `json:"time"`
 }
 

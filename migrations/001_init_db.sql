@@ -27,6 +27,20 @@ CREATE TABLE users_chats
     PRIMARY KEY (user_id, chat_id)
 );
 
+-- Картинки лежат в базе. Сообщение ссылается на свою картинку через
+-- messages.image_id; байты живут отдельно, чтобы история их не тянула.
+CREATE TABLE images
+(
+    id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    chat_id      BIGINT NOT NULL REFERENCES chats (id) ON DELETE CASCADE,
+    content_type TEXT NOT NULL CHECK (content_type IN ('image/jpeg', 'image/png')),
+    data         BYTEA NOT NULL
+);
+
+-- Внешний ключ индекса сам не создаёт. Без него каскадное удаление чата и
+-- проверка доступа к картинке по чату читали бы всю таблицу с байтами.
+CREATE INDEX images_chat_id_idx ON images (chat_id);
+
 CREATE TABLE messages
 (
     id        BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -35,6 +49,7 @@ CREATE TABLE messages
     client_msg_id uuid,
     body      TEXT,
     created_at timestamptz,
+    image_id  BIGINT UNIQUE REFERENCES images (id) ON DELETE SET NULL,
     -- Повтор send с тем же client_msg_id не должен порождать второе сообщение.
     UNIQUE (sender_id, client_msg_id)
 );
@@ -63,6 +78,7 @@ DROP TABLE direct_chats;
 DROP TABLE tokens;
 DROP TABLE users_chats;
 DROP TABLE messages;
+DROP TABLE images;
 DROP TABLE chats;
 DROP TABLE users;
 

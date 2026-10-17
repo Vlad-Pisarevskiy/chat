@@ -47,6 +47,9 @@ var (
 	ErrChatOrPeer          = newValidation("нужно ровно одно из полей chat_id и peer_id")
 	ErrEmptyBody           = newValidation("пустое сообщение")
 	ErrLongBody            = newValidation("сообщение длиннее 4096 символов")
+	ErrBadChatID           = newValidation("chat_id и peer_id должны быть числами")
+	ErrNoImage             = newValidation("картинка не приложена")
+	ErrBadImageFormat      = newValidation("картинка должна быть в формате JPEG или PNG")
 )
 
 // Доступ и существование.
@@ -59,6 +62,8 @@ var (
 	ErrUserDoesntExist    = errors.New("пользователь не найден")
 	ErrNotChatMember      = errors.New("вы не участник этого чата")
 	ErrNoWriteAccess      = errors.New("в канал пишут только владелец и админы")
+	ErrImageNotFound      = errors.New("картинка не найдена")
+	ErrImageTooLarge      = errors.New("картинка больше 5 МБ")
 )
 
 var ErrEmptyDatabasePath = errors.New("не задан DATABASE_URL")
