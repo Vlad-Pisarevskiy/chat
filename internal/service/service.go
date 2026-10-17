@@ -318,7 +318,13 @@ func (s *Service) GetChannel(ctx context.Context, handle string) (*model.Channel
 	return s.db.GetChannel(ctx, handle)
 }
 
-func (s *Service) LoadMessages(ctx context.Context, chatID, from int) ([]protocol.Message, error) {
+// LoadMessages отдаёт пачку истории: limit сообщений с id меньше before,
+// ближайших к нему. before == nil — самые свежие.
+func (s *Service) LoadMessages(ctx context.Context, chatID, from, limit int, before *int) ([]protocol.Message, error) {
 
-	return s.db.LoadMessages(ctx, chatID, from)
+	if err := verifyHistoryLimit(limit); err != nil {
+		return nil, err
+	}
+
+	return s.db.LoadMessages(ctx, chatID, from, limit, before)
 }
