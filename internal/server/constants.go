@@ -28,6 +28,8 @@ const (
 	ownerRole = "owner"
 
 	peerID     = "peer_id"
+	limitKey   = "limit"
+	beforeKey  = "before"
 	userIdKey  = "userID"
 	handleKey  = "handle"
 	chatIdKey  = "chatID"

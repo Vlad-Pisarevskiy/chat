@@ -385,7 +385,13 @@ func (s *Server) LoadMessages(c *gin.Context) {
 		return
 	}
 
-	messages, err := s.service.LoadMessages(c.Request.Context(), chatID, c.GetInt(userIdKey))
+	limit, before, err := historyParams(c)
+	if err != nil {
+		s.fail(c, err)
+		return
+	}
+
+	messages, err := s.service.LoadMessages(c.Request.Context(), chatID, c.GetInt(userIdKey), limit, before)
 	if err != nil {
 		s.fail(c, err)
 		return
@@ -562,6 +568,32 @@ func chatParam(c *gin.Context) (int, bool) {
 	}
 
 	return chatID, true
+}
+
+// historyParams разбирает limit и before. Нет limit — берётся размер пачки по
+// умолчанию, нет before — нужны самые свежие сообщения (nil). Диапазон limit
+// проверяет сервис.
+func historyParams(c *gin.Context) (int, *int, error) {
+
+	limit := service.DefaultHistoryLimit
+	if raw, ok := c.GetQuery(limitKey); ok {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			return nullID, nil, errors1.ErrBadLimit
+		}
+		limit = parsed
+	}
+
+	var before *int
+	if raw, ok := c.GetQuery(beforeKey); ok {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			return nullID, nil, errors1.ErrBadBefore
+		}
+		before = &parsed
+	}
+
+	return limit, before, nil
 }
 
 // fail отвечает на ошибку: известные — своим статусом и текстом для человека,

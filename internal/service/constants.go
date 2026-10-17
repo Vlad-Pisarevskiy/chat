@@ -14,6 +14,10 @@ const (
 	maxDescriptionLength = 255
 	maxBodyLength        = 4096
 
+	// История отдаётся пачками: без limit в запросе берётся DefaultHistoryLimit.
+	DefaultHistoryLimit = 50
+	maxHistoryLimit     = 100
+
 	// MaxImageSize — наибольший размер картинки: 5 МБ, то есть 5 МиБ.
 	MaxImageSize = 5 << 20
 

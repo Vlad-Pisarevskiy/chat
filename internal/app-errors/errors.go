@@ -50,6 +50,8 @@ var (
 	ErrBadChatID           = newValidation("chat_id и peer_id должны быть числами")
 	ErrNoImage             = newValidation("картинка не приложена")
 	ErrBadImageFormat      = newValidation("картинка должна быть в формате JPEG или PNG")
+	ErrBadLimit            = newValidation("limit должен быть числом от 1 до 100")
+	ErrBadBefore           = newValidation("before должен быть числом")
 )
 
 // Доступ и существование.
