@@ -643,19 +643,30 @@ func (r *Repository) CreateGroup(ctx context.Context, name string, members []int
 	return chatID, nil
 }
 
-func (r *Repository) LoadMessages(ctx context.Context, chatID, from int) ([]protocol.Message, error) {
+// LoadMessages отдаёт пачку истории по возрастанию id: limit сообщений с id
+// меньше before (nil — без верхней границы), самых новых среди них. Граница
+// очистки действует в любой пачке.
+func (r *Repository) LoadMessages(ctx context.Context, chatID, from, limit int, before *int) ([]protocol.Message, error) {
 
 	if _, err := r.requireRead(ctx, chatID, from); err != nil {
 		return nil, err
 	}
 
-	// Байты картинок сюда не попадают: в выборке только image_id.
+	// Байты картинок сюда не попадают: в выборке только image_id. LEFT JOIN:
+	// строка users_chats нужна только ради границы очистки, доступ уже решил
+	// requireRead. Внутри — пачка от новых к старым (по индексу chat_id, id),
+	// снаружи — порядок по возрастанию.
 	rows, err := r.pool.Query(ctx,
-		`SELECT m.id, m.chat_id, m.sender_id, m.body, COALESCE(m.image_id, 0), m.created_at
-			 FROM messages m
-			 JOIN users_chats uc ON uc.chat_id = m.chat_id AND uc.user_id = $2
-			 WHERE m.chat_id = $1 AND m.id > COALESCE(uc.border, 0)
-			 ORDER BY m.id`, chatID, from)
+		`SELECT id, chat_id, sender_id, body, image_id, created_at FROM (
+				 SELECT m.id, m.chat_id, m.sender_id, m.body, COALESCE(m.image_id, 0) AS image_id, m.created_at
+				 FROM messages m
+				 LEFT JOIN users_chats uc ON uc.chat_id = m.chat_id AND uc.user_id = $2
+				 WHERE m.chat_id = $1 AND m.id > COALESCE(uc.border, 0)
+				   AND ($3::bigint IS NULL OR m.id < $3)
+				 ORDER BY m.id DESC
+				 LIMIT $4
+			 ) page
+			 ORDER BY id`, chatID, from, before, limit)
 	if err != nil {
 		return nil, fmt.Errorf("история чата: %w", err)
 	}
@@ -663,8 +674,6 @@ func (r *Repository) LoadMessages(ctx context.Context, chatID, from int) ([]prot
 
 	// Не nil: пустой слайс кодируется в [], а nil — в null, на котором падает фронт.
 	messages := make([]protocol.Message, nullLength)
-	var lastID int
-
 	for rows.Next() {
 		var message protocol.Message
 		if err = rows.Scan(
@@ -679,7 +688,6 @@ func (r *Repository) LoadMessages(ctx context.Context, chatID, from int) ([]prot
 
 		message.Time = message.Time.UTC()
 		messages = append(messages, message)
-		lastID = message.Id
 	}
 
 	if err = rows.Err(); err != nil {
@@ -690,8 +698,12 @@ func (r *Repository) LoadMessages(ctx context.Context, chatID, from int) ([]prot
 		return messages, nil
 	}
 
+	// Пачка идёт по возрастанию, так что последнее сообщение — самое новое в ней.
+	// GREATEST: старая пачка при прокрутке вверх не откатывает last_read назад.
+	lastID := messages[len(messages)-1].Id
+
 	_, err = r.pool.Exec(ctx, `UPDATE users_chats
-								   SET last_read = $1
+								   SET last_read = GREATEST(COALESCE(last_read, 0), $1)
 								   WHERE chat_id=$2 AND user_id = $3`, lastID, chatID, from)
 	if err != nil {
 		slog.Warn("last_read не обновлён", "chat", chatID, "err", err)

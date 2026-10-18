@@ -117,6 +117,17 @@ func verifyBodyLength(body string) error {
 	return nil
 }
 
+// verifyHistoryLimit проверяет размер пачки истории. Лишнее не урезается молча:
+// фронт по короткой пачке решает, что история кончилась.
+func verifyHistoryLimit(limit int) error {
+
+	if limit < 1 || limit > maxHistoryLimit {
+		return errors1.ErrBadLimit
+	}
+
+	return nil
+}
+
 // checkImage проверяет файл и определяет его формат по содержимому: имя и
 // Content-Type части присылает клиент, и оба можно подделать.
 func checkImage(data []byte) (model.Image, error) {
