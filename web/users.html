@@ -196,11 +196,60 @@
      а теперь их несколько — композитор внизу чата и окна создания группы и канала. */
   #form {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     padding: 16px;
     background: #fff;
     border-top: 1px solid #c9c7c7;
   }
+
+  /* Картинка в ленте. Высота задана заранее: размер файла браузер узнаёт только
+     после загрузки, и картинка, растущая из нуля, сдвигала бы ленту под
+     пользователем — и внизу, и при подгрузке старых пачек сверху. Ширина
+     подстраивается под пропорции; contain нужен только узкому пузырю, где
+     ширину режет max-width. */
+  .msg .image {
+    display: block;
+    height: 240px;
+    min-width: 120px;
+    max-width: 100%;
+    object-fit: contain;
+    background: rgba(0, 0, 0, .06);
+    border-radius: 6px;
+  }
+  .msg .image-link { display: block; }
+  .msg .image + .caption, .msg .image-link + .caption { display: block; margin-top: 6px; }
+  .msg .image-missing { display: block; font-size: 13px; font-style: italic; }
+
+  /* Прикреплённая картинка — отдельной строкой над полем ввода. */
+  #attachment {
+    display: flex;
+    flex-basis: 100%;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #6b6867;
+  }
+  #attachment img {
+    width: 48px;
+    height: 48px;
+    object-fit: cover;
+    border-radius: 4px;
+  }
+  #attachment-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  #attach, #attachment-remove {
+    flex: none;
+    padding: 0 10px;
+    font: inherit;
+    color: #6b6867;
+    background: #fff;
+    border: 1px solid #c9c7c7;
+    border-radius: 2px;
+    cursor: pointer;
+  }
+  #attach:hover, #attachment-remove:hover { color: #0088b0; background: #f7f6f6; }
+  #attachment-remove { padding: 2px 8px; }
 
   input[type="text"], textarea {
     flex: 1;
@@ -447,6 +496,15 @@
   <p id="placeholder">Выберите чат слева, чтобы начать переписку</p>
 
   <form id="form" hidden>
+    <div id="attachment" hidden>
+      <img id="attachment-preview" alt="">
+      <span id="attachment-name"></span>
+      <button type="button" id="attachment-remove" title="Убрать картинку" aria-label="Убрать картинку">✕</button>
+    </div>
+    <button type="button" id="attach" title="Прикрепить картинку" aria-label="Прикрепить картинку">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.5 3.5 0 0 1 5 5l-8.6 8.6a2 2 0 0 1-2.8-2.8l7.9-7.9"/></svg>
+    </button>
+    <input id="file" type="file" accept="image/jpeg,image/png" hidden>
     <input id="text" type="text" placeholder="Сообщение" autocomplete="off" maxlength="4096" required>
     <button type="submit">Отправить</button>
   </form>
@@ -596,6 +654,12 @@ const messagesEl = document.getElementById("messages");
 const placeholderEl = document.getElementById("placeholder");
 const formEl = document.getElementById("form");
 const textEl = document.getElementById("text");
+const attachEl = document.getElementById("attach");
+const fileEl = document.getElementById("file");
+const attachmentEl = document.getElementById("attachment");
+const attachmentPreviewEl = document.getElementById("attachment-preview");
+const attachmentNameEl = document.getElementById("attachment-name");
+const attachmentRemoveEl = document.getElementById("attachment-remove");
 const peerEl = document.getElementById("peer");
 const statusEl = document.getElementById("status");
 const logoutEl = document.getElementById("logout");
@@ -653,6 +717,15 @@ const NEAR_TOP = 200;
 //   retryAt — после ошибки не повторяем раньше этого момента: scroll приходит
 //             десятки раз в секунду, и каждый породил бы по запросу.
 const paging = new Map();
+
+// Что принимает сервер. Проверка здесь — только чтобы не гонять по сети заведомо
+// отвергнутый файл: формат сервер определяет по содержимому, а не по типу,
+// который назвал браузер.
+const IMAGE_TYPES = ["image/jpeg", "image/png"];
+const MAX_IMAGE_BYTES = 5 << 20;
+
+// Прикреплённая, но ещё не отправленная картинка: { file, preview }.
+let attached = null;
 
 let currentKey = null;
 let currentChatId = null;
@@ -725,6 +798,8 @@ async function openConversation(key, name, chatId) {
   // писать в канал без роли должен запрещать сервер.
   const readOnly = !canPost(key);
   formEl.hidden = readOnly;
+  // Картинку выбирали для прежнего диалога: уйти она должна туда же или никуда.
+  detach();
   textEl.placeholder = isChannel(key) ? "Новый пост" : "Сообщение";
 
   // Сразу рисуем то, что уже есть в памяти вкладки, а не пустую ленту: свежая
@@ -871,9 +946,15 @@ function bubble(message) {
     li.append(author);
   }
 
-  const text = document.createElement("span");
-  text.textContent = message.text; // textContent, а не innerHTML: текст приходит от другого пользователя
-  li.append(text);
+  if (message.imageId || message.preview) li.append(imageElement(message));
+
+  // У картинки подписи может не быть, тогда и пустой строки под ней не нужно.
+  if (message.text || !(message.imageId || message.preview)) {
+    const text = document.createElement("span");
+    text.className = "caption";
+    text.textContent = message.text; // textContent, а не innerHTML: текст приходит от другого пользователя
+    li.append(text);
+  }
 
   // У системных заметок времени нет, и метка им не нужна.
   const at = message.at ? timeElement(message.at) : null;
@@ -885,6 +966,40 @@ function bubble(message) {
   if (message.clientMsgId) li.dataset.cmid = message.clientMsgId;
 
   return li;
+}
+
+// Пока картинка не дошла до сервера, показываем локальное превью: ждать
+// загрузки, чтобы увидеть то, что сам только что выбрал, незачем. Отправленная
+// открывается в полном размере в новой вкладке — кука уходит туда сама.
+function imageElement(message) {
+  const img = document.createElement("img");
+  img.className = "image";
+  img.alt = message.text || "картинка";
+  img.loading = "lazy";
+
+  // 404 — чат удалили или доступа больше нет. Пустая рамка выглядела бы как
+  // картинка, которая вот-вот догрузится.
+  img.addEventListener("error", () => {
+    const missing = document.createElement("span");
+    missing.className = "image-missing";
+    missing.textContent = "картинка недоступна";
+    (img.closest(".image-link") || img).replaceWith(missing);
+  });
+
+  if (!message.imageId) {
+    img.src = message.preview;
+    return img;
+  }
+
+  img.src = "/images/" + message.imageId;
+
+  const link = document.createElement("a");
+  link.className = "image-link";
+  link.href = img.src;
+  link.target = "_blank";
+  link.rel = "noopener";
+  link.append(img);
+  return link;
 }
 
 // Под непрошедшим сообщением — причина от сервера и, после сбоя на его
@@ -988,8 +1103,10 @@ function connect() {
 
     // Всё, что не получило ack до обрыва, уходит заново. Дошло ли оно до
     // сервера, отсюда не узнать, а повтор с тем же client_msg_id дубля не даст.
+    // Картинки сокет не касается: они уходят HTTP-запросом и от обрыва сокета
+    // не зависят.
     for (const message of pending.values()) {
-      if (message.state === "sending") transmit(message);
+      if (message.state === "sending" && !message.upload) transmit(message);
     }
   });
 
@@ -1068,6 +1185,7 @@ function onMessage(payload) {
     id: payload.message_id,
     kind: mine ? "mine" : "theirs",
     text: payload.body,
+    imageId: payload.image_id || undefined,
     at: payload.time,
     author: authorFor(key, payload.sender_id, mine),
   });
@@ -1167,7 +1285,7 @@ formEl.addEventListener("submit", (event) => {
   event.preventDefault();
 
   const text = textEl.value.trim();
-  if (!text || !currentKey) return;
+  if ((!text && !attached) || !currentKey) return;
 
   // Запоминаем, куда пишем: пока создаётся чат, пользователь может уйти в другой диалог.
   const key = currentKey;
@@ -1183,6 +1301,20 @@ formEl.addEventListener("submit", (event) => {
   // Уникален между перезагрузками вкладки: счётчик после F5 начался бы заново,
   // сервер счёл бы новое сообщение ретраем старого и молча его потерял.
   const clientMsgId = crypto.randomUUID();
+
+  if (attached) {
+    const { file, preview } = attached;
+    // Превью теперь принадлежит пузырю, а не полю: detach его не освобождает.
+    attached = null;
+    detach();
+
+    const target = chatId === undefined ? { peer_id: Number(peerIdOf(key)) } : { chat_id: chatId };
+    const message = { kind: "mine", text: text, state: "sending", clientMsgId: clientMsgId, key: key, upload: true, file: file, preview: preview, target: target, at: new Date().toISOString() };
+    pending.set(clientMsgId, message);
+    push(key, message);
+    upload(message);
+    return;
+  }
 
   // from не шлём: отправителя сервер знает сам из токена, клиенту тут верить нельзя.
   // Кадр храним вместе с сообщением: повтор после обрыва уходит ровно таким же.
@@ -1225,7 +1357,141 @@ function retry(clientMsgId) {
   message.retryable = false;
 
   updateBubble(message);
-  transmit(message);
+  if (message.upload) upload(message);
+  else transmit(message);
+}
+
+// --- картинки ---
+
+attachEl.addEventListener("click", () => fileEl.click());
+
+fileEl.addEventListener("change", () => {
+  const file = fileEl.files[0];
+  // Сбрасываем сразу: иначе тот же файл, выбранный повторно, не дал бы change.
+  fileEl.value = "";
+  if (file) attach(file);
+});
+
+// Скриншот из буфера — самый частый способ отправить картинку.
+textEl.addEventListener("paste", (event) => {
+  const file = Array.from(event.clipboardData.files).find((item) => IMAGE_TYPES.includes(item.type));
+  if (!file) return;
+  event.preventDefault();
+  attach(file);
+});
+
+attachmentRemoveEl.addEventListener("click", () => {
+  detach();
+  textEl.focus();
+});
+
+function attach(file) {
+  if (!IMAGE_TYPES.includes(file.type)) {
+    toast("Можно отправить только JPEG или PNG");
+    return;
+  }
+  if (file.size > MAX_IMAGE_BYTES) {
+    toast("Картинка больше 5 МБ");
+    return;
+  }
+
+  detach();
+  attached = { file: file, preview: URL.createObjectURL(file) };
+
+  attachmentPreviewEl.src = attached.preview;
+  attachmentNameEl.textContent = file.name;
+  attachmentEl.hidden = false;
+  // С картинкой подпись необязательна, а required не пустил бы форму без текста.
+  textEl.required = false;
+  textEl.placeholder = "Подпись";
+  textEl.focus();
+}
+
+function detach() {
+  if (attached) URL.revokeObjectURL(attached.preview);
+  attached = null;
+
+  attachmentPreviewEl.removeAttribute("src");
+  attachmentEl.hidden = true;
+  textEl.required = true;
+  textEl.placeholder = currentKey && isChannel(currentKey) ? "Новый пост" : "Сообщение";
+}
+
+// Картинка не помещается в кадр сокета, поэтому сообщение с ней уходит одним
+// HTTP-запросом: файл, подпись и client_msg_id. Ответ играет роль ack, повтор с
+// тем же client_msg_id второго сообщения не заведёт.
+async function upload(message) {
+  const form = new FormData();
+  form.append("file", message.file);
+  for (const [name, value] of Object.entries(message.target)) form.append(name, value);
+  form.append("client_msg_id", message.clientMsgId);
+  if (message.text) form.append("body", message.text);
+
+  // Content-Type не ставим: границу частей multipart браузер допишет в него сам.
+  let response;
+  try {
+    response = await fetch("/chats/images", { method: "POST", body: form });
+  } catch (err) {
+    console.error(err);
+    failUpload(message, "нет связи с сервером", true);
+    return;
+  }
+
+  const payload = await response.json().catch(() => null);
+
+  if (response.ok && payload) {
+    onUploaded(message, payload);
+    return;
+  }
+
+  // Повтор поможет только после сбоя на сервере. На 400, 403, 404 и 413 тот же
+  // файл получит тот же ответ.
+  failUpload(message, payload && payload.error, response.status >= 500);
+}
+
+function onUploaded(message, payload) {
+  pending.delete(message.clientMsgId);
+  URL.revokeObjectURL(message.preview);
+  message.preview = undefined;
+  message.file = undefined;
+
+  if (removedChats.has(payload.chat_id)) return;
+
+  // Ответ идёт по HTTP, а рассылка — по сокету, и кадр message может обогнать
+  // ответ. В кадре нет client_msg_id, поэтому он нарисовался отдельным пузырём.
+  // Тогда локальный пузырь лишний: серверная копия уже на месте.
+  if (seenMessageIds.has(payload.message_id)) {
+    const list = history.get(message.key) || [];
+    history.set(message.key, list.filter((item) => item !== message));
+    const el = messagesEl.querySelector('[data-cmid="' + CSS.escape(message.clientMsgId) + '"]');
+    if (el) el.remove();
+    return;
+  }
+  seenMessageIds.add(payload.message_id);
+
+  // Как в onAck: картинка, отправленная по peer_id, могла завести чат.
+  if (payload.chat_id > 0 && chatIdByKey.get(message.key) === undefined) {
+    bindChat(payload.chat_id, message.key);
+    if (currentKey === message.key) currentChatId = payload.chat_id;
+  }
+
+  message.state = "sent";
+  message.id = payload.message_id;
+  message.imageId = payload.image_id;
+  message.error = undefined;
+  message.retryable = false;
+  if (payload.time) message.at = payload.time;
+
+  updateBubble(message);
+}
+
+function failUpload(message, error, retryable) {
+  message.state = "failed";
+  message.error = error || undefined;
+  message.retryable = retryable;
+  if (!retryable) pending.delete(message.clientMsgId);
+
+  updateBubble(message);
 }
 
 connect();
@@ -1288,6 +1554,7 @@ function toEntry(key, message) {
     id: message.message_id,
     kind: mine ? "mine" : "theirs",
     text: message.body,
+    imageId: message.image_id || undefined,
     at: message.time,
     author: authorFor(key, message.sender_id, mine),
   };
