@@ -3,98 +3,12 @@ package service
 import (
 	errors1 "chatflow/internal/app-errors"
 	"chatflow/internal/model"
-	"context"
 	"net/http"
 	"regexp"
 	"unicode/utf8"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
-var loginRegexp = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
-
 var handleRegexp = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{4,31}$`)
-
-// validateRegister сначала проверяет формат и только потом ходит в базу.
-func (s *Service) validateRegister(ctx context.Context, user RegisterInput) error {
-
-	if err := correctName(user.Name); err != nil {
-		return err
-	}
-
-	if err := correctLogin(user.Login); err != nil {
-		return err
-	}
-
-	if err := correctPassword(user.Password); err != nil {
-		return err
-	}
-
-	return s.db.LoginExists(ctx, user.Login)
-}
-
-func hashPassword(password string) (string, error) {
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return emptyHash, err
-	}
-	return string(hashedPassword), nil
-}
-
-func correctName(name string) error {
-
-	if name == emptyName {
-		return errors1.ErrEmptyName
-	}
-
-	if utf8.RuneCountInString(name) > maxNameLength {
-		return errors1.ErrLongName
-	}
-
-	return nil
-}
-
-func correctLogin(login string) error {
-
-	if login == emptyLogin {
-		return errors1.ErrEmptyLogin
-	}
-
-	if !loginRegexp.MatchString(login) {
-		return errors1.ErrLoginFormat
-	}
-
-	if len(login) < minLoginLength {
-		return errors1.ErrShortLogin
-	}
-
-	if len(login) > maxLoginLength {
-		return errors1.ErrLongLogin
-	}
-
-	return nil
-}
-
-func correctPassword(password string) error {
-
-	if password == emptyPassword {
-		return errors1.ErrEmptyPassword
-	}
-
-	length := utf8.RuneCountInString(password)
-	if length < minPasswordLength {
-		return errors1.ErrShortPassword
-	}
-
-	// bcrypt смотрит только на первые 72 байта и на более длинный пароль
-	// возвращает ошибку. Кириллица — два байта на букву, поэтому лимит по байтам
-	// проверяется отдельно от лимита по символам.
-	if length > maxPasswordLength || len(password) > maxPasswordBytes {
-		return errors1.ErrLongPassword
-	}
-
-	return nil
-}
 
 // verifyName проверяет название группы или канала, уже после trim.
 func verifyName(name string) error {

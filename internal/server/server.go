@@ -41,18 +41,7 @@ func (s *Server) GetRouter() *gin.Engine {
 
 	r := gin.Default()
 
-	r.LoadHTMLFiles("web/login.html", "web/register.html", "web/users.html")
-
-	r.GET("/register", s.Registration)
-	r.GET("/login", s.Authorization)
-
-	auth := r.Group("/auth")
-	auth.Use(jsonOnly())
-	{
-		auth.POST("/register", s.Register)
-		auth.POST("/login", s.Login)
-		auth.POST("/logout", s.Logout)
-	}
+	r.LoadHTMLFiles("web/users.html")
 
 	ws := r.Group("/ws")
 	ws.Use(s.apiAuthorization())
@@ -313,14 +302,6 @@ func (s *Server) GetPeer(c *gin.Context) {
 	})
 }
 
-func (s *Server) Registration(c *gin.Context) {
-	c.HTML(http.StatusOK, "register.html", nil)
-}
-
-func (s *Server) Authorization(c *gin.Context) {
-	c.HTML(http.StatusOK, "login.html", nil)
-}
-
 func (s *Server) Chats(c *gin.Context) {
 
 	userID := c.GetInt(userIdKey)
@@ -362,22 +343,6 @@ func (s *Server) Chats(c *gin.Context) {
 	})
 }
 
-func (s *Server) Logout(c *gin.Context) {
-
-	// Без куки выходить уже не из чего, а результат тот же — поэтому тоже 200.
-	if token, err := c.Cookie(tokenKey); err == nil {
-		if err = s.service.Logout(c.Request.Context(), token); err != nil {
-			s.fail(c, err)
-			return
-		}
-	}
-
-	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie(tokenKey, emptyToken, removeCookieAge, "/", "", true, true)
-
-	c.Status(http.StatusOK)
-}
-
 func (s *Server) LoadMessages(c *gin.Context) {
 
 	chatID, ok := chatParam(c)
@@ -398,54 +363,6 @@ func (s *Server) LoadMessages(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, messages)
-}
-
-func (s *Server) Register(c *gin.Context) {
-
-	var registerRequest RegisterRequest
-	if err := c.ShouldBindJSON(&registerRequest); err != nil {
-		s.fail(c, errors1.ErrIncorrectData)
-		return
-	}
-
-	request := service.RegisterInput{
-		Name:     registerRequest.Name,
-		Login:    registerRequest.Login,
-		Password: registerRequest.Password,
-	}
-
-	if err := s.service.RegisterUser(c.Request.Context(), request); err != nil {
-		s.fail(c, err)
-		return
-	}
-
-	c.JSON(http.StatusCreated, gin.H{})
-}
-
-func (s *Server) Login(c *gin.Context) {
-
-	var request LoginRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
-		s.fail(c, errors1.ErrIncorrectData)
-		return
-	}
-
-	_, token, err := s.service.LoginUser(c.Request.Context(),
-		request.Login,
-		request.Password,
-	)
-	if err != nil {
-		s.fail(c, err)
-		return
-	}
-
-	// Устанавливает, кто может переходить на сайт по ссылкам
-	c.SetSameSite(http.SameSiteLaxMode)
-
-	// Задаем куки. Path определяет путь по которому будут работать куки. Secure определяет доступность для не https соединений
-	c.SetCookie(tokenKey, token, cookieMaxAge, "/", "", true, true)
-
-	c.JSON(http.StatusOK, gin.H{})
 }
 
 func (s *Server) Run(c *gin.Context) {

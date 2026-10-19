@@ -53,23 +53,6 @@ func (r *Repository) RegisterUser(ctx context.Context, client model.User) error 
 	return nil
 }
 
-func (r *Repository) LoginExists(ctx context.Context, login string) error {
-
-	row := r.pool.QueryRow(ctx, "SELECT login FROM users WHERE login = $1", login)
-
-	var dbLogin string
-
-	err := row.Scan(&dbLogin)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		return err
-	}
-
-	return errors1.ErrExistsLogin
-}
-
 func (r *Repository) FindUserByLogin(ctx context.Context, login string) (*model.User, error) {
 
 	var user model.User

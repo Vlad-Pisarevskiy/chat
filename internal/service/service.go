@@ -6,13 +6,11 @@ import (
 	"chatflow/internal/protocol"
 	"chatflow/internal/repository/postgres"
 	"context"
-	rand "crypto/rand"
 	"crypto/sha256"
 	"slices"
 	"strings"
 
 	"github.com/google/uuid"
-	"golang.org/x/crypto/bcrypt"
 )
 
 const nullID = 0
@@ -23,55 +21,6 @@ type Service struct {
 
 func New(repo *postgres.Repository) *Service {
 	return &Service{db: repo}
-}
-
-func (s *Service) RegisterUser(ctx context.Context, input RegisterInput) error {
-
-	input.Name = strings.TrimSpace(input.Name)
-
-	if err := s.validateRegister(ctx, input); err != nil {
-		return err
-	}
-
-	hash, err := hashPassword(input.Password)
-	if err != nil {
-		return err
-	}
-
-	user := model.User{
-		Name:     input.Name,
-		Login:    input.Login,
-		Password: hash,
-	}
-
-	return s.db.RegisterUser(ctx, user)
-}
-
-func (s *Service) LoginUser(ctx context.Context, login, password string) (*model.User, string, error) {
-
-	// Логин не по формату получает тот же ответ, что и неверный пароль: иначе по
-	// тексту ошибки можно было бы отличить несуществующий логин от неверного пароля.
-	if err := correctLogin(login); err != nil {
-		return nil, emptyToken, errors1.ErrIncorrectLoginData
-	}
-
-	user, err := s.db.FindUserByLogin(ctx, login)
-	if err != nil {
-		return nil, emptyToken, err
-	}
-
-	if err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
-		return nil, emptyToken, errors1.ErrIncorrectLoginData
-	}
-
-	token := rand.Text()
-	tokenHash := sha256.Sum256([]byte(token))
-
-	if err = s.db.AddToken(ctx, user.ID, tokenHash[:]); err != nil {
-		return nil, emptyToken, err
-	}
-
-	return user, token, nil
 }
 
 func (s *Service) CheckToken(ctx context.Context, token string) (int, error) {
@@ -89,16 +38,6 @@ func (s *Service) CleanupTokens(ctx context.Context) (int64, error) {
 
 	return s.db.DeleteExpiredTokens(ctx)
 
-}
-
-func (s *Service) Logout(ctx context.Context, token string) error {
-
-	tokenHash := sha256.Sum256([]byte(token))
-	if err := s.db.RemoveToken(ctx, tokenHash[:]); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (s *Service) CreateGroup(ctx context.Context, group GroupCreate) (*CreatedGroup, error) {

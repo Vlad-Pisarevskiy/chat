@@ -2,12 +2,6 @@ package service
 
 import "chatflow/internal/protocol"
 
-type RegisterInput struct {
-	Name     string
-	Login    string
-	Password string
-}
-
 type ChatDelete struct {
 	UserID int `json:"user_id"`
 	ChatID int `json:"chat_id"`
