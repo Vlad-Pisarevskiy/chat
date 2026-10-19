@@ -215,13 +215,18 @@ func (s *Server) DeleteMessage(c *gin.Context) {
 	deleteRequest.ChatID = chatID
 	deleteRequest.UserID = c.GetInt(userIdKey)
 
-	if err := s.service.DeleteMessage(c.Request.Context(), deleteRequest); err != nil {
-		//TODO: проверка на тип ошибки
+	members, err := s.service.DeleteMessage(c.Request.Context(), deleteRequest)
+	if err != nil {
 		s.fail(c, err)
 		return
 	}
 
-	c.Status(http.StatusOK)
+	s.broadcast(members, messageDeletedType, protocol.Deleted{
+		ChatID:    chatID,
+		MessageID: deleteRequest.MessageID,
+	})
+
+	c.Status(http.StatusNoContent)
 }
 
 func (s *Server) CreateGroup(c *gin.Context) {

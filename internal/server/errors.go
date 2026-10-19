@@ -27,6 +27,8 @@ var knownErrors = []struct {
 	{errors1.ErrNotChatMember, http.StatusForbidden, protocol.CodeForbidden},
 	{errors1.ErrNoWriteAccess, http.StatusForbidden, protocol.CodeForbidden},
 	{errors1.ErrImageNotFound, http.StatusNotFound, protocol.CodeNotFound},
+	{errors1.ErrMessageNotFound, http.StatusNotFound, protocol.CodeNotFound},
+	{errors1.ErrNoDeleteAccess, http.StatusForbidden, protocol.CodeForbidden},
 	{errors1.ErrImageTooLarge, http.StatusRequestEntityTooLarge, protocol.CodeBadRequest},
 	{errors1.ErrIncorrectLoginData, http.StatusUnauthorized, protocol.CodeForbidden},
 	{errors1.ErrExistsLogin, http.StatusConflict, protocol.CodeBadRequest},

@@ -57,6 +57,11 @@ type Cleared struct {
 	UpToMessageID int `json:"up_to_message_id"`
 }
 
+type Deleted struct {
+	ChatID    int `json:"chat_id"`
+	MessageID int `json:"message_id"`
+}
+
 type Presence struct {
 	UserID int  `json:"user_id"`
 	Online bool `json:"online"`

@@ -52,6 +52,7 @@ var (
 	ErrBadImageFormat      = newValidation("картинка должна быть в формате JPEG или PNG")
 	ErrBadLimit            = newValidation("limit должен быть числом от 1 до 100")
 	ErrBadBefore           = newValidation("before должен быть числом")
+	ErrBadMessageID        = newValidation("message_id должен быть положительным числом")
 )
 
 // Доступ и существование.
@@ -65,6 +66,8 @@ var (
 	ErrNotChatMember      = errors.New("вы не участник этого чата")
 	ErrNoWriteAccess      = errors.New("в канал пишут только владелец и админы")
 	ErrImageNotFound      = errors.New("картинка не найдена")
+	ErrMessageNotFound    = errors.New("сообщение не найдено")
+	ErrNoDeleteAccess     = errors.New("у вас нет прав удалить это сообщение")
 	ErrImageTooLarge      = errors.New("картинка больше 5 МБ")
 )
 

@@ -16,14 +16,15 @@ const (
 	writeDeadline = time.Second * 30
 	tickerTiming  = time.Second * 25
 
-	presenceType    = "presence"
-	messageType     = "message"
-	errorType       = "error"
-	chatAddedType   = "chat_added"
-	chatRemovedType = "chat_removed"
-	chatClearedType = "chat_cleared"
-	sendType        = "send"
-	ackType         = "ack"
+	presenceType       = "presence"
+	messageType        = "message"
+	errorType          = "error"
+	chatAddedType      = "chat_added"
+	chatRemovedType    = "chat_removed"
+	chatClearedType    = "chat_cleared"
+	messageDeletedType = "message_deleted"
+	sendType           = "send"
+	ackType            = "ack"
 
 	ownerRole = "owner"
 
