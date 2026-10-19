@@ -176,7 +176,13 @@ func (s *Service) DeleteChat(ctx context.Context, delete ChatDelete) ([]int, err
 	return s.db.DeleteChat(ctx, delete.ChatID, delete.UserID)
 }
 
-func (s *Service) DeleteMessage(ctx context.Context, delete MessageDelete) error {
+// DeleteMessage удаляет сообщение и возвращает id участников чата: им сервер
+// разошлёт message_deleted.
+func (s *Service) DeleteMessage(ctx context.Context, delete MessageDelete) ([]int, error) {
+
+	if delete.MessageID <= nullID {
+		return nil, errors1.ErrBadMessageID
+	}
 
 	return s.db.DeleteMessage(ctx, delete.UserID, delete.MessageID, delete.ChatID)
 }

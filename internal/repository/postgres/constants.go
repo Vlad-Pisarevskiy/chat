@@ -7,7 +7,9 @@ const (
 	ownerRole  = "owner"
 	memberRole = "member"
 
-	directType = "direct"
+	directType  = "direct"
+	groupType   = "group"
+	channelType = "channel"
 
 	// Коды ошибок Postgres.
 	uniqueViolation     = "23505"
