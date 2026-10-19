@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 )
 
 func deletePath(chatID int) string {
@@ -856,8 +858,8 @@ type deleteResult struct {
 	body   []byte
 }
 
-// concurrentDeletes отправляет запросы на удаление одновременно, по одному от
-// каждого actors[i].
+// concurrentDeletes отправляет запросы на удаление одного сообщения
+// одновременно, по одному от каждого actors[i].
 func concurrentDeletes(t *testing.T, e *env, actors []*user, chatID, messageID int) []deleteResult {
 	t.Helper()
 
@@ -866,24 +868,52 @@ func concurrentDeletes(t *testing.T, e *env, actors []*user, chatID, messageID i
 		t.Fatal(err)
 	}
 
-	results := make([]deleteResult, len(actors))
-	errs := make([]error, len(actors))
+	requests := make([]concurrentRequest, len(actors))
+	for i, u := range actors {
+		requests[i] = concurrentRequest{u: u, path: deletePath(chatID), body: raw}
+	}
+
+	return concurrentPosts(t, e, http.DefaultClient, requests)
+}
+
+// concurrentRequest — POST от имени u. body == nil — запрос без тела и без
+// Content-Type, иначе тело JSON.
+type concurrentRequest struct {
+	u    *user
+	path string
+	body []byte
+}
+
+// concurrentPosts отпускает все запросы разом и ждёт ответов. Ответ i
+// соответствует запросу i.
+func concurrentPosts(t *testing.T, e *env, client *http.Client, requests []concurrentRequest) []deleteResult {
+	t.Helper()
+
+	results := make([]deleteResult, len(requests))
+	errs := make([]error, len(requests))
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 
-	for i, u := range actors {
+	for i, r := range requests {
 		wg.Go(func() {
 			<-start
 
-			req, err := http.NewRequest(http.MethodPost, e.srv.URL+deletePath(chatID), bytes.NewReader(raw))
+			var body io.Reader
+			if r.body != nil {
+				body = bytes.NewReader(r.body)
+			}
+
+			req, err := http.NewRequest(http.MethodPost, e.srv.URL+r.path, body)
 			if err != nil {
 				errs[i] = err
 				return
 			}
-			req.Header.Set("Content-Type", "application/json")
-			req.AddCookie(&http.Cookie{Name: u.cookie.Name, Value: u.cookie.Value})
+			if r.body != nil {
+				req.Header.Set("Content-Type", "application/json")
+			}
+			req.AddCookie(&http.Cookie{Name: r.u.cookie.Name, Value: r.u.cookie.Value})
 
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := client.Do(req)
 			if err != nil {
 				errs[i] = err
 				return
@@ -907,6 +937,114 @@ func concurrentDeletes(t *testing.T, e *env, actors []*user, chatID, messageID i
 	}
 
 	return results
+}
+
+// Удаление сообщений и удаление всей лички идут одновременно. Ни один запрос
+// не падает с 500: удаление сообщения отвечает 204 или 404, удаление чата —
+// 204 или 404. После раунда от чата в базе ничего не остаётся.
+func TestDeleteMessageRacesChatDeletion(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+
+	const (
+		rounds   = 60
+		messages = 20
+	)
+
+	a, b := e.newUser(t), e.newUser(t)
+	ac := e.dial(t, a)
+
+	// Свой транспорт: запросы раунда идут параллельно, и соединения должны
+	// переиспользоваться между раундами.
+	transport := &http.Transport{MaxIdleConnsPerHost: messages + 1}
+	t.Cleanup(transport.CloseIdleConnections)
+	client := &http.Client{Transport: transport}
+
+	for round := range rounds {
+		// Личка заводится заново первым сообщением по peer_id: прежнюю удалил
+		// прошлый раунд.
+		first := ac.sendText(t, map[string]any{"peer_id": b.id}, "раунд "+strconv.Itoa(round))
+		chatID := first.ChatID
+
+		// Остальные сообщения кладутся прямо в базу: так раунд готовится быстро.
+		rows, err := testPool.Query(context.Background(), `INSERT INTO messages (chat_id, sender_id, client_msg_id, body, created_at)
+			SELECT $1, CASE WHEN n % 2 = 0 THEN $2::bigint ELSE $3::bigint END, gen_random_uuid(), 'сообщение', now()
+			FROM generate_series(1, $4::int) AS n
+			ORDER BY n
+			RETURNING id, sender_id`, chatID, a.id, b.id, messages-1)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		requests := []concurrentRequest{}
+		addDelete := func(u *user, messageID int) {
+			raw, err := json.Marshal(map[string]any{"message_id": messageID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			requests = append(requests, concurrentRequest{u: u, path: deletePath(chatID), body: raw})
+		}
+
+		inserted, err := pgx.CollectRows(rows, pgx.RowToStructByPos[struct {
+			ID       int
+			SenderID int
+		}])
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		addDelete(a, first.MessageID)
+		for _, m := range inserted {
+			author := a
+			if m.SenderID == b.id {
+				author = b
+			}
+			addDelete(author, m.ID)
+		}
+
+		if len(requests) != messages {
+			t.Fatalf("раунд %d: подготовлено %d сообщений, ждали %d", round, len(requests), messages)
+		}
+
+		// Чат удаляет то один, то другой участник; запрос встаёт в середину.
+		remover := []*user{a, b}[round%2]
+		chatDelete := len(requests) / 2
+		requests = slices.Insert(requests, chatDelete, concurrentRequest{u: remover, path: fmt.Sprintf("/chats/%d/delete", chatID)})
+
+		results := concurrentPosts(t, e, client, requests)
+
+		for i, r := range results {
+			what := "удаление сообщения"
+			if i == chatDelete {
+				what = "удаление чата"
+			}
+
+			switch r.status {
+			case http.StatusNoContent:
+				if len(r.body) != 0 {
+					t.Fatalf("раунд %d, %s: у 204 есть тело: %s", round, what, r.body)
+				}
+			case http.StatusNotFound:
+				requireError(t, r.status, r.body, http.StatusNotFound)
+			default:
+				t.Fatalf("раунд %d, %s: статус %d, ждали 204 или 404; тело %s", round, what, r.status, r.body)
+			}
+		}
+
+		for _, check := range []struct {
+			what  string
+			query string
+		}{
+			{"чат", `SELECT count(*) FROM chats WHERE id = $1`},
+			{"сообщения", `SELECT count(*) FROM messages WHERE chat_id = $1`},
+			{"участники", `SELECT count(*) FROM users_chats WHERE chat_id = $1`},
+			{"пара лички", `SELECT count(*) FROM direct_chats WHERE chat_id = $1`},
+		} {
+			if n := countRows(t, check.query, chatID); n != 0 {
+				t.Fatalf("раунд %d: после удаления чата %d осталось (%s): %d", round, chatID, check.what, n)
+			}
+		}
+	}
 }
 
 // Пагинация по before не ломается от пропусков в нумерации.
