@@ -68,11 +68,64 @@ const (
 	emptyHandle      = ""
 	emptyField       = ""
 	emptyDescription = ""
-	emptyToken       = ""
 	emptyOrigin      = ""
 	emptyClientMsgID = ""
 	nullID           = 0
 
 	// Отрицательный Max-Age велит браузеру удалить куку сразу.
 	removeCookieAge = -1
+
+	minLoginLength = 3
+	maxLoginLength = 32
+
+	minPasswordLength = 8
+	maxPasswordLength = 64
+	maxPasswordBytes  = 72
+
+	nullLength           = 0
+	minNameLength        = 1
+	maxNameLength        = 50
+	maxDescriptionLength = 255
+	maxBodyLength        = 4096
+
+	// История отдаётся пачками: без limit в запросе берётся DefaultHistoryLimit.
+	DefaultHistoryLimit = 50
+	maxHistoryLimit     = 100
+
+	// MaxImageSize — наибольший размер картинки: 5 МБ, то есть 5 МиБ.
+	MaxImageSize = 5 << 20
+
+	// Сколько байт хватает http.DetectContentType, чтобы узнать формат.
+	sniffLength = 512
+
+	contentTypeJPEG = "image/jpeg"
+	contentTypePNG  = "image/png"
+
+	emptyID   = 0
+	emptyName = ""
+	emptyHash
+	emptyLogin
+	emptyPassword
+	emptyToken
+	emptyBody
+
+	adminRole  = "admin"
+	memberRole = "member"
+
+	directType = "direct"
+
+	// Коды ошибок Postgres.
+	uniqueViolation     = "23505"
+	foreignKeyViolation = "23503"
+
+	// Условие «пользователь может писать в чат»: $1 — чат, $2 — пользователь.
+	// Участник пишет везде, в канале — только владелец и админы. Единое для
+	// текста и картинок.
+	writeAllowedSQL = `EXISTS (SELECT 1 FROM users_chats uc
+		JOIN chats c ON c.id = uc.chat_id
+		WHERE uc.chat_id = $1 AND uc.user_id = $2
+		AND (c.type <> 'channel' OR uc.role IN ('owner', 'admin')))`
+
+	tokenTTL       = time.Hour * 24
+	tokenThreshold = time.Hour * 12
 )

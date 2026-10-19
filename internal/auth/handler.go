@@ -1,13 +1,22 @@
 package auth
 
 import (
-	errors1 "chatflow/internal/app-errors"
-	"chatflow/internal/service"
 	"mime"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
+
+type RegisterRequest struct {
+	Name     string `json:"name"`
+	Login    string `json:"login"`
+	Password string `json:"password"`
+}
+
+type LoginRequest struct {
+	Login    string `json:"login"`
+	Password string `json:"password"`
+}
 
 type Handler struct {
 	service *Service
@@ -34,6 +43,8 @@ func (h *Handler) RegisterRouter() *gin.Engine {
 		auth.POST("/login", h.Login)
 		auth.POST("/logout", h.Logout)
 	}
+
+	return r
 }
 
 func (h *Handler) Registration(c *gin.Context) {
@@ -48,18 +59,16 @@ func (h *Handler) Register(c *gin.Context) {
 
 	var registerRequest RegisterRequest
 	if err := c.ShouldBindJSON(&registerRequest); err != nil {
-		s.fail(c, errors1.ErrIncorrectData)
 		return
 	}
 
-	request := service.RegisterInput{
+	request := RegisterInput{
 		Name:     registerRequest.Name,
 		Login:    registerRequest.Login,
 		Password: registerRequest.Password,
 	}
 
 	if err := h.service.RegisterUser(c.Request.Context(), request); err != nil {
-		h.fail(c, err)
 		return
 	}
 
@@ -70,16 +79,15 @@ func (h *Handler) Login(c *gin.Context) {
 
 	var request LoginRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
-		s.fail(c, errors1.ErrIncorrectData)
+
 		return
 	}
 
-	_, token, err := s.service.LoginUser(c.Request.Context(),
+	_, token, err := h.service.LoginUser(c.Request.Context(),
 		request.Login,
 		request.Password,
 	)
 	if err != nil {
-		h.fail(c, err)
 		return
 	}
 
@@ -94,7 +102,6 @@ func (h *Handler) Login(c *gin.Context) {
 
 func (h *Handler) Logout(c *gin.Context) {
 
-	// Без куки выходить уже не из чего, а результат тот же — поэтому тоже 200.
 	if token, err := c.Cookie(tokenKey); err == nil {
 		if err = h.service.Logout(c.Request.Context(), token); err != nil {
 			return
