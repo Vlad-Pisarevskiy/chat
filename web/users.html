@@ -1528,7 +1528,8 @@ function onUploaded(message, payload) {
   // Ответ идёт по HTTP, а рассылка — по сокету, и кадр message может обогнать
   // ответ. В кадре нет client_msg_id, поэтому он нарисовался отдельным пузырём.
   // Тогда локальный пузырь лишний: серверная копия уже на месте.
-  if (seenMessageIds.has(payload.message_id)) {
+  // Так же поступаем, если сообщение уже удалили.
+  if (seenMessageIds.has(payload.message_id) || deletedMessageIds.has(payload.message_id)) {
     const list = history.get(message.key) || [];
     history.set(message.key, list.filter((item) => item !== message));
     const el = messagesEl.querySelector('[data-cmid="' + CSS.escape(message.clientMsgId) + '"]');
@@ -2572,12 +2573,24 @@ function askDeleteMessage(messageId) {
   messageDeleteTarget = { chatId: chatId, messageId: messageId };
 
   hideError(messageDeleteErrorEl);
-  confirmMessageDeleteEl.disabled = deletingMessage;
+  confirmMessageDeleteEl.disabled = false;
+  cancelMessageDeleteEl.disabled = false;
 
   messageDeleteDialogEl.showModal();
 }
 
 cancelMessageDeleteEl.addEventListener("click", () => messageDeleteDialogEl.close());
+
+// Пока запрос в пути, окно не закрыть: иначе ответ пришёл бы в закрытое окно,
+// а ошибку никто не увидел бы, или закрыл бы окно, открытое уже для другого
+// сообщения. Esc отменяем; повторный Esc Chrome может пропустить мимо cancel,
+// поэтому закрытое окно возвращаем.
+messageDeleteDialogEl.addEventListener("cancel", (event) => {
+  if (deletingMessage) event.preventDefault();
+});
+messageDeleteDialogEl.addEventListener("close", () => {
+  if (deletingMessage) messageDeleteDialogEl.showModal();
+});
 
 messageDeleteFormEl.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -2590,6 +2603,7 @@ messageDeleteFormEl.addEventListener("submit", async (event) => {
   hideError(messageDeleteErrorEl);
   deletingMessage = true;
   confirmMessageDeleteEl.disabled = true;
+  cancelMessageDeleteEl.disabled = true;
 
   let response = null;
   try {
@@ -2609,6 +2623,7 @@ messageDeleteFormEl.addEventListener("submit", async (event) => {
   if (response.status === 204 || response.status === 404) {
     deletingMessage = false;
     confirmMessageDeleteEl.disabled = false;
+    cancelMessageDeleteEl.disabled = false;
     messageDeleteDialogEl.close();
     removeMessage(chatId, messageId);
     return;
@@ -2624,6 +2639,7 @@ function failDeleteMessage(text) {
   deletingMessage = false;
   showError(messageDeleteErrorEl, text);
   confirmMessageDeleteEl.disabled = false;
+  cancelMessageDeleteEl.disabled = false;
 }
 
 // Сообщение удалено: ответ на своё удаление или кадр message_deleted — с этого

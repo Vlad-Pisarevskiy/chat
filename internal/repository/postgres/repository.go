@@ -744,17 +744,15 @@ func (r *Repository) ClearChat(ctx context.Context, chatID, userID int) (int, er
 // порядку: чат есть, пользователь в нём состоит, сообщение лежит в этом чате,
 // права на него есть.
 //
-// Сообщение, его картинка и проверка прав — одна транзакция. Строка сообщения
-// блокируется на время проверки, поэтому два одновременных удаления
+// Всё — одна транзакция. Строка чата блокируется первой и на общее чтение
+// ключа: удаление чата каскадом берёт строки участников и сообщений в своём
+// порядке, и без этой блокировки встречные порядки давали бы взаимную
+// блокировку. Теперь DeleteChat ждёт, пока мы закончим. Дальше строка
+// сообщения блокируется на время проверки, поэтому два одновременных удаления
 // выстраиваются в очередь, и второе не находит сообщения. Роли двух участников
-// блокируются на общее чтение: пока удаляем, их не поменяют, и удаляется только
-// то, на что права были на самом деле.
+// блокируются на общее чтение: пока удаляем, их не поменяют, и удаляется
+// только то, на что права были на самом деле.
 func (r *Repository) DeleteMessage(ctx context.Context, userID, messageID, chatID int) ([]int, error) {
-
-	access, err := r.requireMember(ctx, chatID, userID)
-	if err != nil {
-		return nil, err
-	}
 
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -763,6 +761,23 @@ func (r *Repository) DeleteMessage(ctx context.Context, userID, messageID, chatI
 	defer func(tx pgx.Tx, ctx context.Context) {
 		_ = tx.Rollback(ctx)
 	}(tx, ctx)
+
+	var chatType string
+	err = tx.QueryRow(ctx, `SELECT type FROM chats WHERE id = $1 FOR KEY SHARE`, chatID).Scan(&chatType)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, errors1.ErrChatNotFound
+		}
+		return nil, fmt.Errorf("поиск чата: %w", err)
+	}
+
+	myRole, member, err := lockRole(ctx, tx, chatID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if !member {
+		return nil, errors1.ErrNotChatMember
+	}
 
 	var authorID int
 	err = tx.QueryRow(ctx, `SELECT sender_id FROM messages WHERE id = $1 AND chat_id = $2 FOR UPDATE`,
@@ -774,24 +789,20 @@ func (r *Repository) DeleteMessage(ctx context.Context, userID, messageID, chatI
 		return nil, fmt.Errorf("поиск сообщения: %w", err)
 	}
 
-	roles, err := lockRoles(ctx, tx, chatID, userID, authorID)
-	if err != nil {
-		return nil, err
-	}
-
-	myRole, member := roles[userID]
-	if !member {
-		// Пока искали сообщение, я вышел из чата или меня исключили.
-		return nil, errors1.ErrNotChatMember
-	}
-
 	// Автор, которого нет среди участников, вышел или исключён: он считается member.
-	authorRole, ok := roles[authorID]
-	if !ok {
-		authorRole = memberRole
+	authorRole := myRole
+	if authorID != userID {
+		var inChat bool
+		authorRole, inChat, err = lockRole(ctx, tx, chatID, authorID)
+		if err != nil {
+			return nil, err
+		}
+		if !inChat {
+			authorRole = memberRole
+		}
 	}
 
-	if !canDelete(access.chatType, myRole, authorRole, userID == authorID) {
+	if !canDelete(chatType, myRole, authorRole, userID == authorID) {
 		return nil, errors1.ErrNoDeleteAccess
 	}
 
@@ -830,33 +841,22 @@ func (r *Repository) DeleteMessage(ctx context.Context, userID, messageID, chatI
 	return members, nil
 }
 
-// lockRoles читает роли двух пользователей в чате и блокирует эти строки на
-// общее чтение до конца транзакции. Тех, кого в чате нет, в ответе нет.
-func lockRoles(ctx context.Context, tx pgx.Tx, chatID, userID, authorID int) (map[int]string, error) {
+// lockRole читает роль пользователя в чате и блокирует его строку на общее
+// чтение до конца транзакции. Нет строки — пользователя в чате нет.
+func lockRole(ctx context.Context, tx pgx.Tx, chatID, userID int) (string, bool, error) {
 
-	rows, err := tx.Query(ctx, `SELECT user_id, COALESCE(role, 'member') FROM users_chats
-		WHERE chat_id = $1 AND user_id IN ($2, $3)
-		ORDER BY user_id
-		FOR SHARE`, chatID, userID, authorID)
+	var role string
+	err := tx.QueryRow(ctx, `SELECT COALESCE(role, 'member') FROM users_chats
+		WHERE chat_id = $1 AND user_id = $2
+		FOR SHARE`, chatID, userID).Scan(&role)
 	if err != nil {
-		return nil, fmt.Errorf("роли участников: %w", err)
-	}
-	defer rows.Close()
-
-	roles := make(map[int]string)
-	for rows.Next() {
-		var id int
-		var role string
-		if err = rows.Scan(&id, &role); err != nil {
-			return nil, fmt.Errorf("роли участников: %w", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, nil
 		}
-		roles[id] = role
-	}
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("роли участников: %w", err)
+		return "", false, fmt.Errorf("роль участника: %w", err)
 	}
 
-	return roles, nil
+	return role, true, nil
 }
 
 // canDelete — единственное место правила «кто какие сообщения удаляет». Роли
