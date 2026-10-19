@@ -164,6 +164,23 @@
     text-decoration: underline;
     cursor: pointer;
   }
+  /* Сообщение, которое дошло до сервера, можно выбрать кликом: под ним
+     появляется «Удалить», как в Телеграме. */
+  .msg.deletable { cursor: pointer; }
+  .msg.picked { box-shadow: 0 0 0 2px rgba(0, 136, 176, .55); }
+  .msg .remove {
+    display: none;
+    margin-top: 4px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    font-size: 12px;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .msg.picked .remove { display: block; }
   .msg .at {
     margin-left: 8px;
     font-size: 11px;
@@ -640,6 +657,23 @@
   </form>
 </dialog>
 
+<dialog id="message-delete-dialog">
+  <form id="message-delete-form">
+    <section>
+      <h2>Удалить сообщение?</h2>
+
+      <p class="dialog-text">Сообщение исчезнет у всех участников чата. Отменить это нельзя.</p>
+
+      <p class="error" id="message-delete-error" hidden></p>
+
+      <p class="actions">
+        <button type="button" class="ghost" id="cancel-message-delete">Отмена</button>
+        <button type="submit" class="danger" id="confirm-message-delete">Удалить</button>
+      </p>
+    </section>
+  </form>
+</dialog>
+
 <p id="toast" hidden></p>
 
 <script>
@@ -693,6 +727,13 @@ const seenMessageIds = new Set();
 // переиспользуются, поэтому всё, что адресовано этим чатам, просто выбрасываем.
 const removedChats = new Set();
 
+// Удалённые сообщения. Ответ на удаление приходит по HTTP, а кадры message и
+// пачки истории — по сокету и отдельными запросами, и порядок между ними не
+// гарантирован: запоздавшее сообщение или пачка, собранная до удаления,
+// воскресили бы его в ленте. id не переиспользуются, поэтому такие просто
+// выбрасываем.
+const deletedMessageIds = new Set();
+
 // Каналы, в которые вступаем прямо сейчас. Пост из канала может прийти по
 // сокету раньше ответа на join, и незнакомый chat_id приняли бы за личку с
 // автором поста. Такие кадры выбрасываем: после join канал откроется со
@@ -715,7 +756,9 @@ const NEAR_TOP = 200;
 //   loading — пачка в пути, вторую параллельно не шлём;
 //   done    — дошли до начала переписки, больше не спрашиваем;
 //   retryAt — после ошибки не повторяем раньше этого момента: scroll приходит
-//             десятки раз в секунду, и каждый породил бы по запросу.
+//             десятки раз в секунду, и каждый породил бы по запросу;
+//   floor   — самое старое из удалённых сообщений, которые были в ленте: курсор
+//             не уезжает дальше него, даже если в ленте ничего старее не осталось.
 const paging = new Map();
 
 // Что принимает сервер. Проверка здесь — только чтобы не гонять по сети заведомо
@@ -962,6 +1005,21 @@ function bubble(message) {
 
   if (message.state === "failed") li.append(failureNote(message));
 
+  // Удалять есть что, только когда сообщение дошло до сервера и получило id.
+  if (message.id !== undefined) {
+    li.dataset.mid = message.id;
+
+    if (canDeleteMessage(currentKey, message)) {
+      li.classList.add("deletable");
+
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "remove";
+      remove.textContent = "Удалить";
+      li.append(remove);
+    }
+  }
+
   // По этому атрибуту ack и error находят нарисованный пузырь и перерисовывают его.
   if (message.clientMsgId) li.dataset.cmid = message.clientMsgId;
 
@@ -1157,6 +1215,7 @@ function receive(raw) {
   else if (frame.type === "chat_added") onChatAdded(payload);
   else if (frame.type === "chat_removed") removeChat(payload.chat_id);
   else if (frame.type === "chat_cleared") clearChat(payload.chat_id, Number(payload.up_to_message_id));
+  else if (frame.type === "message_deleted") removeMessage(Number(payload.chat_id), Number(payload.message_id));
 }
 
 function onMessage(payload) {
@@ -1166,6 +1225,7 @@ function onMessage(payload) {
   // (сервер рассылает всем участникам чата, отправитель — тоже участник).
   // Дедуплицируем по серверному id, он единственный общий для обеих копий.
   if (seenMessageIds.has(payload.message_id)) return;
+  if (deletedMessageIds.has(payload.message_id)) return;
   seenMessageIds.add(payload.message_id);
 
   let key = keyByChat.get(payload.chat_id);
@@ -1207,6 +1267,14 @@ function onAck(payload) {
   if (payload.chat_id > 0 && chatIdByKey.get(message.key) === undefined && !removedChats.has(payload.chat_id)) {
     bindChat(payload.chat_id, message.key);
     if (currentKey === message.key) currentChatId = payload.chat_id;
+  }
+
+  // Сообщение успели удалить раньше, чем пришёл ack: пузырю делать нечего.
+  if (deletedMessageIds.has(payload.message_id)) {
+    history.set(message.key, (history.get(message.key) || []).filter((entry) => entry !== message));
+    const el = message.clientMsgId && messagesEl.querySelector('[data-cmid="' + CSS.escape(message.clientMsgId) + '"]');
+    if (el) el.remove();
+    return;
   }
 
   message.state = "sent";
@@ -1538,7 +1606,7 @@ async function fetchPage(chatId, before) {
 }
 
 function pageState(key) {
-  if (!paging.has(key)) paging.set(key, { ready: false, loading: false, done: false, retryAt: 0 });
+  if (!paging.has(key)) paging.set(key, { ready: false, loading: false, done: false, retryAt: 0, floor: null });
   return paging.get(key);
 }
 
@@ -1563,7 +1631,10 @@ function toEntry(key, message) {
 // Курсор — самое старое сообщение, которое уже есть в ленте. Отдельно его не
 // храним: лента и так единственное место, где видно, докуда загружено.
 function oldestId(key) {
-  let oldest = null;
+  // Удалённое сообщение из ленты пропадает, но курсор не должен уезжать вперёд:
+  // стёртое самым старым в ленте всё равно оставляло позади себя непрочитанную
+  // историю. Эту границу держит floor (см. removeMessage).
+  let oldest = paging.has(key) ? paging.get(key).floor : null;
   for (const message of history.get(key) || []) {
     if (message.id !== undefined && (oldest === null || message.id < oldest)) oldest = message.id;
   }
@@ -1585,7 +1656,8 @@ async function loadMessages(chatId, key) {
   state.ready = true;
   if (page.length < PAGE_SIZE) state.done = true;
 
-  history.set(key, mergeById(history.get(key) || [], page.map((message) => toEntry(key, message))));
+  const fresh = page.filter((message) => !deletedMessageIds.has(message.message_id));
+  history.set(key, mergeById(history.get(key) || [], fresh.map((message) => toEntry(key, message))));
 
   if (currentKey !== key) return;
 
@@ -1642,7 +1714,7 @@ async function loadOlder(key) {
   // Ленту могли дополнить, пока шёл запрос, — сверяемся с ней уже после ответа.
   const known = new Set((history.get(key) || []).map((message) => message.id));
   const older = page
-    .filter((message) => message.message_id < cursor && !known.has(message.message_id))
+    .filter((message) => message.message_id < cursor && !known.has(message.message_id) && !deletedMessageIds.has(message.message_id))
     .sort((a, b) => a.message_id - b.message_id)
     .map((message) => toEntry(key, message));
 
@@ -2445,6 +2517,141 @@ function clearChat(chatId, upTo) {
 
   renderHistory(key);
   note("История очищена");
+}
+
+// --- удаление сообщения ---
+
+const messageDeleteDialogEl = document.getElementById("message-delete-dialog");
+const messageDeleteFormEl = document.getElementById("message-delete-form");
+const messageDeleteErrorEl = document.getElementById("message-delete-error");
+const cancelMessageDeleteEl = document.getElementById("cancel-message-delete");
+const confirmMessageDeleteEl = document.getElementById("confirm-message-delete");
+
+// Чат и сообщение запоминаем на открытии окна, а дальше работаем только по id:
+// пока идёт запрос, окно можно закрыть по Esc и уйти в другой диалог.
+let messageDeleteTarget = null;
+let deletingMessage = false;
+
+// Кнопка есть у того, что дошло до сервера. В личке и в группе это свои
+// сообщения: роли в группе фронт не знает, а права админа и владельца проверяет
+// сервер. В канале владелец и админ видят её на всех постах, а ролей авторов
+// фронт не знает: на посте владельца сервер ответит 403, и текст покажется в окне.
+function canDeleteMessage(key, message) {
+  if (message.id === undefined) return false;
+  if (isChannel(key)) return canPost(key);
+  return message.kind === "mine";
+}
+
+function unpickMessages() {
+  for (const el of messagesEl.querySelectorAll(".msg.picked")) el.classList.remove("picked");
+}
+
+// Клик по пузырю выбирает его и показывает «Удалить», повторный — снимает выбор.
+// Ссылка на картинку и «Повторить» живут своей жизнью и пузырь не выбирают.
+messagesEl.addEventListener("click", (event) => {
+  const li = event.target.closest(".msg.deletable");
+
+  if (li && event.target.closest(".remove")) {
+    askDeleteMessage(Number(li.dataset.mid));
+    return;
+  }
+
+  if (event.target.closest("a, button")) return;
+
+  const wasPicked = li !== null && li.classList.contains("picked");
+  unpickMessages();
+  if (!li || wasPicked) return;
+
+  li.classList.add("picked");
+  li.scrollIntoView({ block: "nearest" });
+});
+
+function askDeleteMessage(messageId) {
+  const chatId = chatIdByKey.get(currentKey);
+  if (chatId === undefined) return;
+  messageDeleteTarget = { chatId: chatId, messageId: messageId };
+
+  hideError(messageDeleteErrorEl);
+  confirmMessageDeleteEl.disabled = deletingMessage;
+
+  messageDeleteDialogEl.showModal();
+}
+
+cancelMessageDeleteEl.addEventListener("click", () => messageDeleteDialogEl.close());
+
+messageDeleteFormEl.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  // Флаг, а не вид кнопки — как у удаления переписки: Enter отправляет форму и мимо неё.
+  if (deletingMessage || !messageDeleteTarget) return;
+
+  const { chatId, messageId } = messageDeleteTarget;
+
+  hideError(messageDeleteErrorEl);
+  deletingMessage = true;
+  confirmMessageDeleteEl.disabled = true;
+
+  let response = null;
+  try {
+    response = await fetch("/chats/" + chatId + "/messages/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message_id: messageId }),
+    });
+  } catch (err) {
+    console.error(err);
+    failDeleteMessage("Нет связи с сервером");
+    return;
+  }
+
+  // 404 — сообщения уже нет: его успели удалить с другого устройства или это
+  // сделал админ. Итог тот же, что после 204.
+  if (response.status === 204 || response.status === 404) {
+    deletingMessage = false;
+    confirmMessageDeleteEl.disabled = false;
+    messageDeleteDialogEl.close();
+    removeMessage(chatId, messageId);
+    return;
+  }
+
+  // Остальное — 403 и сбои — показываем текстом сервера; пузырь остаётся.
+  const payload = await response.json().catch(() => null);
+  failDeleteMessage((payload && payload.error) || "Не удалось удалить сообщение (" + response.status + ")");
+});
+
+// Окно не закрываем: человек решил удалить, и повторить ему проще отсюда.
+function failDeleteMessage(text) {
+  deletingMessage = false;
+  showError(messageDeleteErrorEl, text);
+  confirmMessageDeleteEl.disabled = false;
+}
+
+// Сообщение удалено: ответ на своё удаление или кадр message_deleted — с этого
+// устройства, с другого или от админа. На своё удаление приходят и ответ, и
+// кадр, поэтому повторный вызов ничего не делает.
+function removeMessage(chatId, messageId) {
+  deletedMessageIds.add(messageId);
+
+  const key = keyByChat.get(chatId);
+  if (key === undefined) return;
+
+  const entries = history.get(key) || [];
+  const kept = entries.filter((message) => message.id !== messageId);
+
+  if (kept.length !== entries.length) {
+    history.set(key, kept);
+
+    // Курсор подгрузки не должен уехать вперёд, если стёрли самое старое из
+    // загруженного. Только для того, что было в ленте: иначе граница могла бы
+    // перепрыгнуть через ещё не загруженные сообщения.
+    const state = pageState(key);
+    state.floor = state.floor === null ? messageId : Math.min(state.floor, messageId);
+  }
+
+  if (currentKey !== key) return;
+
+  const el = messagesEl.querySelector('[data-mid="' + CSS.escape(String(messageId)) + '"]');
+  if (el) el.remove();
 }
 </script>
 
