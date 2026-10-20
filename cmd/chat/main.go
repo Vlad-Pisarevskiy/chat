@@ -72,6 +72,7 @@ func main() {
 	hub.Close()
 }
 
+// TODO: функция будет перенесена в микросервис авторизации
 func cleanupTokens(ctx context.Context, service *service2.Service) {
 
 	ticker := time.NewTicker(interval)

@@ -25,13 +25,14 @@ func New(repo *postgres.Repository) *Service {
 
 func (s *Service) CheckToken(ctx context.Context, token string) (int, error) {
 
-	tokenHash := sha256.Sum256([]byte(token))
-	id, err := s.db.CheckToken(ctx, tokenHash[:])
-	if err != nil {
-		return emptyID, err
-	}
-
-	return id, nil
+	// TODO: здесь будет вызов микросервиса авторизации
+	//tokenHash := sha256.Sum256([]byte(token))
+	//id, err := s.db.CheckToken(ctx, tokenHash[:])
+	//if err != nil {
+	//	return emptyID, err
+	//}
+	//
+	//return id, nil
 }
 
 func (s *Service) CleanupTokens(ctx context.Context) (int64, error) {

@@ -61,17 +61,8 @@ CREATE TABLE direct_chats
     CHECK (user_low < user_high)
 );
 
-CREATE TABLE tokens
-(
-    token_hash bytea PRIMARY KEY,
-    user_id    BIGINT ,
-    expires_at timestamptz,
-    created_at timestamptz
-);
-
 -- +goose Down
 DROP TABLE direct_chats;
-DROP TABLE tokens;
 DROP TABLE users_chats;
 DROP TABLE messages;
 DROP TABLE images;

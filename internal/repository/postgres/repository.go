@@ -111,38 +111,6 @@ func (r *Repository) GetUsersExcept(ctx context.Context, id int) ([]*model.UserF
 	return users, nil
 }
 
-func (r *Repository) AddToken(ctx context.Context, userID int, token []byte) error {
-
-	_, err := r.pool.Exec(ctx, `INSERT INTO tokens(user_id, token_hash, created_at, expires_at)
-									VALUES ($1, $2, $3, $4)`, userID, token, time.Now(), time.Now().Add(tokenTTL))
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (r *Repository) CheckToken(ctx context.Context, token []byte) (userID int, err error) {
-
-	row := r.pool.QueryRow(ctx, "SELECT user_id FROM tokens WHERE token_hash=($1) AND expires_at>$2", token, time.Now())
-
-	err = row.Scan(&userID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nullID, errors1.ErrInvalidToken
-		}
-		return userID, err
-	}
-
-	_, err = r.pool.Exec(ctx, `UPDATE tokens SET expires_at = $1 WHERE token_hash = $2 AND expires_at < $3`,
-		time.Now().Add(tokenTTL), token, time.Now().Add(tokenThreshold))
-	if err != nil {
-		slog.Warn("срок токена не продлён", "err", err)
-	}
-
-	return userID, nil
-}
-
 func (r *Repository) RemoveToken(ctx context.Context, token []byte) error {
 
 	_, err := r.pool.Exec(ctx, `DELETE FROM tokens WHERE token_hash = $1`, token)

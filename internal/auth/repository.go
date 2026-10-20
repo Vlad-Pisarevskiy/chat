@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -75,6 +76,28 @@ func (r *Repository) RemoveToken(ctx context.Context, token []byte) error {
 	}
 
 	return nil
+}
+
+// TODO: доступ к функции нужен будет монолиту
+func (r *Repository) CheckToken(ctx context.Context, token []byte) (userID int, err error) {
+
+	row := r.pool.QueryRow(ctx, "SELECT user_id FROM tokens WHERE token_hash=($1) AND expires_at>$2", token, time.Now())
+
+	err = row.Scan(&userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nullID, errors1.ErrInvalidToken
+		}
+		return userID, err
+	}
+
+	_, err = r.pool.Exec(ctx, `UPDATE tokens SET expires_at = $1 WHERE token_hash = $2 AND expires_at < $3`,
+		time.Now().Add(tokenTTL), token, time.Now().Add(tokenThreshold))
+	if err != nil {
+		slog.Warn("срок токена не продлён", "err", err)
+	}
+
+	return userID, nil
 }
 
 func isUniqueViolation(err error) bool {
