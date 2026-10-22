@@ -50,15 +50,21 @@ func (s *Service) GetUserExcept(ctx context.Context, id int) ([]*auth.UserFromDB
 	return s.db.GetUsersExcept(ctx, id)
 }
 
-func (s *Service) CheckToken(ctx context.Context, token string) (*auth.TokenResponse, error) {
+func (s *Service) CheckToken(ctx context.Context, token string) (int, error) {
 
 	tokenHash := sha256.Sum256([]byte(token))
 	id, err := s.db.CheckToken(ctx, tokenHash[:])
 	if err != nil {
-		return nil, err
+		return nullID, err
 	}
 
 	return id, nil
+}
+
+func (s *Service) CleanupTokens(ctx context.Context) (int64, error) {
+
+	return s.db.DeleteExpiredTokens(ctx)
+
 }
 
 func (s *Service) LoginUser(ctx context.Context, login, password string) (*User, string, error) {

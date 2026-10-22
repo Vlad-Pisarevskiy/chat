@@ -60,7 +60,7 @@ func (r *Repository) RemoveToken(ctx context.Context, token []byte) error {
 	return nil
 }
 
-func (r *Repository) CheckToken(ctx context.Context, token []byte) (*auth.TokenResponse, error) {
+func (r *Repository) CheckToken(ctx context.Context, token []byte) (int, error) {
 
 	var userID int
 	row := r.pool.QueryRow(ctx, "SELECT user_id FROM tokens WHERE token_hash=($1) AND expires_at>$2", token, time.Now())
@@ -68,9 +68,9 @@ func (r *Repository) CheckToken(ctx context.Context, token []byte) (*auth.TokenR
 	err := row.Scan(&userID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, errors1.ErrInvalidToken
+			return nullID, errors1.ErrInvalidToken
 		}
-		return nil, err
+		return nullID, err
 	}
 
 	_, err = r.pool.Exec(ctx, `UPDATE tokens SET expires_at = $1 WHERE token_hash = $2 AND expires_at < $3`,
@@ -79,7 +79,17 @@ func (r *Repository) CheckToken(ctx context.Context, token []byte) (*auth.TokenR
 		slog.Warn("срок токена не продлён", "err", err)
 	}
 
-	return &auth.TokenResponse{UserID: int64(userID)}, nil
+	return userID, nil
+}
+
+func (r *Repository) DeleteExpiredTokens(ctx context.Context) (int64, error) {
+
+	tag, err := r.pool.Exec(ctx, `DELETE FROM tokens WHERE expires_at < $1`, time.Now())
+	if err != nil {
+		return nullID, err
+	}
+
+	return tag.RowsAffected(), nil
 }
 
 func (r *Repository) FindUserByLogin(ctx context.Context, login string) (*User, error) {

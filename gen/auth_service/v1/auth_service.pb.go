@@ -466,10 +466,10 @@ const file_proto_auth_service_v1_auth_service_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x14\n" +
 	"\x05login\x18\x02 \x01(\tR\x05login\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x1a\n" +
-	"\bpassword\x18\x04 \x01(\tR\bpassword2\xb3\x01\n" +
-	"\vUserService\x12R\n" +
-	"\vGetUserByID\x12 .user_service.v1.UserByIDRequest\x1a!.user_service.v1.UserByIDResponse\x12P\n" +
-	"\x0eGetUsersExcept\x12\x1e.user_service.v1.UserIDRequest\x1a\x1e.user_service.v1.UsersResponse2[\n" +
+	"\bpassword\x18\x04 \x01(\tR\bpassword2\xad\x01\n" +
+	"\vUserService\x12O\n" +
+	"\bUserByID\x12 .user_service.v1.UserByIDRequest\x1a!.user_service.v1.UserByIDResponse\x12M\n" +
+	"\vUsersExcept\x12\x1e.user_service.v1.UserIDRequest\x1a\x1e.user_service.v1.UsersResponse2[\n" +
 	"\fTokenService\x12K\n" +
 	"\n" +
 	"CheckToken\x12\x1d.user_service.v1.TokenRequest\x1a\x1e.user_service.v1.TokenResponseB#Z!gen/auth_service/v1;authservicev1b\x06proto3"
@@ -499,11 +499,11 @@ var file_proto_auth_service_v1_auth_service_proto_goTypes = []any{
 }
 var file_proto_auth_service_v1_auth_service_proto_depIdxs = []int32{
 	3, // 0: user_service.v1.UsersResponse.users:type_name -> user_service.v1.UserFromDB
-	6, // 1: user_service.v1.UserService.GetUserByID:input_type -> user_service.v1.UserByIDRequest
-	4, // 2: user_service.v1.UserService.GetUsersExcept:input_type -> user_service.v1.UserIDRequest
+	6, // 1: user_service.v1.UserService.UserByID:input_type -> user_service.v1.UserByIDRequest
+	4, // 2: user_service.v1.UserService.UsersExcept:input_type -> user_service.v1.UserIDRequest
 	0, // 3: user_service.v1.TokenService.CheckToken:input_type -> user_service.v1.TokenRequest
-	7, // 4: user_service.v1.UserService.GetUserByID:output_type -> user_service.v1.UserByIDResponse
-	5, // 5: user_service.v1.UserService.GetUsersExcept:output_type -> user_service.v1.UsersResponse
+	7, // 4: user_service.v1.UserService.UserByID:output_type -> user_service.v1.UserByIDResponse
+	5, // 5: user_service.v1.UserService.UsersExcept:output_type -> user_service.v1.UsersResponse
 	1, // 6: user_service.v1.TokenService.CheckToken:output_type -> user_service.v1.TokenResponse
 	4, // [4:7] is the sub-list for method output_type
 	1, // [1:4] is the sub-list for method input_type

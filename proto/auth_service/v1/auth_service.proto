@@ -6,8 +6,8 @@ option go_package = "gen/auth_service/v1;authservicev1";
 
 
 service UserService {
-  rpc GetUserByID(UserByIDRequest) returns (UserByIDResponse);
-  rpc GetUsersExcept(UserIDRequest) returns (UsersResponse);
+  rpc UserByID(UserByIDRequest) returns (UserByIDResponse);
+  rpc UsersExcept(UserIDRequest) returns (UsersResponse);
 }
 
 service TokenService {

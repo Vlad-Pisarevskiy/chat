@@ -715,16 +715,6 @@ func (r *Repository) JoinChannel(ctx context.Context, userID, channelID int) (*m
 	return &channel, nil
 }
 
-func (r *Repository) DeleteExpiredTokens(ctx context.Context) (int64, error) {
-
-	tag, err := r.pool.Exec(ctx, `DELETE FROM tokens WHERE expires_at < $1`, time.Now())
-	if err != nil {
-		return nullID, err
-	}
-
-	return tag.RowsAffected(), nil
-}
-
 // chatAccess узнаёт тип чата и место пользователя в нём. Чата нет — ErrChatNotFound.
 func (r *Repository) chatAccess(ctx context.Context, chatID, userID int) (chatAccess, error) {
 

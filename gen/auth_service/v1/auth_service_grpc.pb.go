@@ -19,16 +19,16 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	UserService_GetUserByID_FullMethodName    = "/user_service.v1.UserService/GetUserByID"
-	UserService_GetUsersExcept_FullMethodName = "/user_service.v1.UserService/GetUsersExcept"
+	UserService_UserByID_FullMethodName    = "/user_service.v1.UserService/UserByID"
+	UserService_UsersExcept_FullMethodName = "/user_service.v1.UserService/UsersExcept"
 )
 
 // UserServiceClient is the client API for UserService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type UserServiceClient interface {
-	GetUserByID(ctx context.Context, in *UserByIDRequest, opts ...grpc.CallOption) (*UserByIDResponse, error)
-	GetUsersExcept(ctx context.Context, in *UserIDRequest, opts ...grpc.CallOption) (*UsersResponse, error)
+	UserByID(ctx context.Context, in *UserByIDRequest, opts ...grpc.CallOption) (*UserByIDResponse, error)
+	UsersExcept(ctx context.Context, in *UserIDRequest, opts ...grpc.CallOption) (*UsersResponse, error)
 }
 
 type userServiceClient struct {
@@ -39,20 +39,20 @@ func NewUserServiceClient(cc grpc.ClientConnInterface) UserServiceClient {
 	return &userServiceClient{cc}
 }
 
-func (c *userServiceClient) GetUserByID(ctx context.Context, in *UserByIDRequest, opts ...grpc.CallOption) (*UserByIDResponse, error) {
+func (c *userServiceClient) UserByID(ctx context.Context, in *UserByIDRequest, opts ...grpc.CallOption) (*UserByIDResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(UserByIDResponse)
-	err := c.cc.Invoke(ctx, UserService_GetUserByID_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, UserService_UserByID_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *userServiceClient) GetUsersExcept(ctx context.Context, in *UserIDRequest, opts ...grpc.CallOption) (*UsersResponse, error) {
+func (c *userServiceClient) UsersExcept(ctx context.Context, in *UserIDRequest, opts ...grpc.CallOption) (*UsersResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(UsersResponse)
-	err := c.cc.Invoke(ctx, UserService_GetUsersExcept_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, UserService_UsersExcept_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -63,8 +63,8 @@ func (c *userServiceClient) GetUsersExcept(ctx context.Context, in *UserIDReques
 // All implementations must embed UnimplementedUserServiceServer
 // for forward compatibility.
 type UserServiceServer interface {
-	GetUserByID(context.Context, *UserByIDRequest) (*UserByIDResponse, error)
-	GetUsersExcept(context.Context, *UserIDRequest) (*UsersResponse, error)
+	UserByID(context.Context, *UserByIDRequest) (*UserByIDResponse, error)
+	UsersExcept(context.Context, *UserIDRequest) (*UsersResponse, error)
 	mustEmbedUnimplementedUserServiceServer()
 }
 
@@ -75,11 +75,11 @@ type UserServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedUserServiceServer struct{}
 
-func (UnimplementedUserServiceServer) GetUserByID(context.Context, *UserByIDRequest) (*UserByIDResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetUserByID not implemented")
+func (UnimplementedUserServiceServer) UserByID(context.Context, *UserByIDRequest) (*UserByIDResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UserByID not implemented")
 }
-func (UnimplementedUserServiceServer) GetUsersExcept(context.Context, *UserIDRequest) (*UsersResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetUsersExcept not implemented")
+func (UnimplementedUserServiceServer) UsersExcept(context.Context, *UserIDRequest) (*UsersResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UsersExcept not implemented")
 }
 func (UnimplementedUserServiceServer) mustEmbedUnimplementedUserServiceServer() {}
 func (UnimplementedUserServiceServer) testEmbeddedByValue()                     {}
@@ -102,38 +102,38 @@ func RegisterUserServiceServer(s grpc.ServiceRegistrar, srv UserServiceServer) {
 	s.RegisterService(&UserService_ServiceDesc, srv)
 }
 
-func _UserService_GetUserByID_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _UserService_UserByID_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(UserByIDRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(UserServiceServer).GetUserByID(ctx, in)
+		return srv.(UserServiceServer).UserByID(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: UserService_GetUserByID_FullMethodName,
+		FullMethod: UserService_UserByID_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(UserServiceServer).GetUserByID(ctx, req.(*UserByIDRequest))
+		return srv.(UserServiceServer).UserByID(ctx, req.(*UserByIDRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _UserService_GetUsersExcept_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _UserService_UsersExcept_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(UserIDRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(UserServiceServer).GetUsersExcept(ctx, in)
+		return srv.(UserServiceServer).UsersExcept(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: UserService_GetUsersExcept_FullMethodName,
+		FullMethod: UserService_UsersExcept_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(UserServiceServer).GetUsersExcept(ctx, req.(*UserIDRequest))
+		return srv.(UserServiceServer).UsersExcept(ctx, req.(*UserIDRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -146,12 +146,12 @@ var UserService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*UserServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "GetUserByID",
-			Handler:    _UserService_GetUserByID_Handler,
+			MethodName: "UserByID",
+			Handler:    _UserService_UserByID_Handler,
 		},
 		{
-			MethodName: "GetUsersExcept",
-			Handler:    _UserService_GetUsersExcept_Handler,
+			MethodName: "UsersExcept",
+			Handler:    _UserService_UsersExcept_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

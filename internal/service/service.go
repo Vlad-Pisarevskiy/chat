@@ -19,8 +19,9 @@ import (
 const nullID = 0
 
 type Service struct {
-	client auth.UserServiceClient
-	db     *postgres.Repository
+	clients auth.UserServiceClient
+	tokens  auth.TokenServiceClient
+	db      *postgres.Repository
 }
 
 func New(repo *postgres.Repository) *Service {
@@ -32,28 +33,23 @@ func New(repo *postgres.Repository) *Service {
 	}
 
 	client := auth.NewUserServiceClient(conn)
+	tokens := auth.NewTokenServiceClient(conn)
 
 	return &Service{
-		db:     repo,
-		client: client}
+		db:      repo,
+		clients: client,
+		tokens:  tokens,
+	}
 }
 
 func (s *Service) CheckToken(ctx context.Context, token string) (int, error) {
 
-	// TODO: здесь будет вызов микросервиса авторизации
-	//tokenHash := sha256.Sum256([]byte(token))
-	//id, err := s.db.CheckToken(ctx, tokenHash[:])
-	//if err != nil {
-	//	return emptyID, err
-	//}
-	//
-	//return id, nil
-}
+	resp, err := s.tokens.CheckToken(ctx, &auth.TokenRequest{Token: token})
+	if err != nil {
+		return nullID, err
+	}
 
-func (s *Service) CleanupTokens(ctx context.Context) (int64, error) {
-
-	return s.db.DeleteExpiredTokens(ctx)
-
+	return int(resp.UserID), nil
 }
 
 func (s *Service) CreateGroup(ctx context.Context, group GroupCreate) (*CreatedGroup, error) {
@@ -148,12 +144,12 @@ func (s *Service) GetChannels(ctx context.Context, userID int) ([]model.ChannelF
 
 func (s *Service) FindUserByID(ctx context.Context, id int) (*auth.UserByIDResponse, error) {
 
-	return s.client.GetUserByID(ctx, &auth.UserByIDRequest{Id: int64(id)})
+	return s.clients.UserByID(ctx, &auth.UserByIDRequest{Id: int64(id)})
 }
 
 func (s *Service) GetUsersExcept(ctx context.Context, id int) (*auth.UsersResponse, error) {
 
-	return s.client.GetUsersExcept(ctx, &auth.UserIDRequest{Id: int32(id)})
+	return s.clients.UsersExcept(ctx, &auth.UserIDRequest{Id: int32(id)})
 }
 
 func (s *Service) ClearChat(ctx context.Context, chatID, userID int) (int, error) {

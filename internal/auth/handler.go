@@ -48,7 +48,7 @@ func (h *Handler) CheckToken(ctx context.Context, token *auth.TokenRequest) (*au
 		return nil, err
 	}
 
-	return userID, nil
+	return &auth.TokenResponse{UserID: int64(userID)}, nil
 }
 
 func (h *Handler) RegisterRouter() *gin.Engine {
