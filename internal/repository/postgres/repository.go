@@ -53,64 +53,6 @@ func (r *Repository) RegisterUser(ctx context.Context, client model.User) error 
 	return nil
 }
 
-func (r *Repository) FindUserByLogin(ctx context.Context, login string) (*model.User, error) {
-
-	var user model.User
-
-	row := r.pool.QueryRow(ctx, "SELECT id, name, login, password FROM users WHERE login=($1)", login)
-	if err := row.Scan(
-		&user.ID,
-		&user.Name,
-		&user.Login,
-		&user.Password); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, errors1.ErrIncorrectLoginData
-		}
-		return nil, err
-	}
-
-	return &user, nil
-}
-
-func (r *Repository) FindUserByID(ctx context.Context, id int) (*model.UserFromDB, error) {
-
-	var user model.UserFromDB
-
-	row := r.pool.QueryRow(ctx, "SELECT id, name, login FROM users WHERE id=$1", id)
-	if err := row.Scan(
-		&user.ID,
-		&user.Name,
-		&user.Login); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, errors1.ErrUserDoesntExist
-		}
-		return nil, err
-	}
-
-	return &user, nil
-}
-
-func (r *Repository) GetUsersExcept(ctx context.Context, id int) ([]*model.UserFromDB, error) {
-
-	var users []*model.UserFromDB
-
-	rows, err := r.pool.Query(ctx, "SELECT id, name, login FROM users WHERE id <> $1", id)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	users, err = scanRows(rows, users)
-	if err != nil {
-		if users != nil {
-			return users, nil
-		}
-		return nil, err
-	}
-
-	return users, nil
-}
-
 func (r *Repository) RemoveToken(ctx context.Context, token []byte) error {
 
 	_, err := r.pool.Exec(ctx, `DELETE FROM tokens WHERE token_hash = $1`, token)
@@ -837,29 +779,6 @@ func (r *Repository) requireRead(ctx context.Context, chatID, userID int) (chatA
 	}
 
 	return access, nil
-}
-
-func scanRows(rows pgx.Rows, users []*model.UserFromDB) ([]*model.UserFromDB, error) {
-
-	for rows.Next() {
-
-		var user model.UserFromDB
-
-		if err := rows.Scan(
-			&user.ID,
-			&user.Name,
-			&user.Login); err != nil {
-			return nil, err
-		}
-
-		users = append(users, &user)
-	}
-
-	if rows.Err() != nil {
-		return users, rows.Err()
-	}
-
-	return users, nil
 }
 
 // orderedPair упорядочивает пару, чтобы (A, B) и (B, A) были одной строкой direct_chats.

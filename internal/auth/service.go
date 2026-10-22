@@ -1,6 +1,7 @@
 package auth
 
 import (
+	auth "chatflow/gen/auth_service/v1"
 	errors1 "chatflow/internal/app-errors"
 	"chatflow/internal/model"
 	"context"
@@ -11,19 +12,6 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 )
-
-type User struct {
-	ID       int
-	Name     string
-	Login    string
-	Password string
-}
-
-type RegisterInput struct {
-	Name     string
-	Login    string
-	Password string
-}
 
 var loginRegexp = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
 
@@ -57,7 +45,23 @@ func (s *Service) RegisterUser(ctx context.Context, input RegisterInput) error {
 	return s.db.RegisterUser(ctx, user)
 }
 
-func (s *Service) LoginUser(ctx context.Context, login, password string) (*model.User, string, error) {
+func (s *Service) GetUserExcept(ctx context.Context, id int) ([]*auth.UserFromDB, error) {
+
+	return s.db.GetUsersExcept(ctx, id)
+}
+
+func (s *Service) CheckToken(ctx context.Context, token string) (*auth.TokenResponse, error) {
+
+	tokenHash := sha256.Sum256([]byte(token))
+	id, err := s.db.CheckToken(ctx, tokenHash[:])
+	if err != nil {
+		return nil, err
+	}
+
+	return id, nil
+}
+
+func (s *Service) LoginUser(ctx context.Context, login, password string) (*User, string, error) {
 
 	if err := correctLogin(login); err != nil {
 		return nil, emptyToken, errors1.ErrIncorrectLoginData

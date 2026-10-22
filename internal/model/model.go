@@ -7,7 +7,7 @@ type User struct {
 	Password string
 }
 
-type UserFromDB struct {
+type UserFromAuth struct {
 	ID    int
 	Name  string
 	Login string

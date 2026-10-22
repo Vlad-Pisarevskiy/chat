@@ -1,26 +1,41 @@
 package service
 
 import (
+	auth "chatflow/gen/auth_service/v1"
 	errors1 "chatflow/internal/app-errors"
 	"chatflow/internal/model"
 	"chatflow/internal/protocol"
 	"chatflow/internal/repository/postgres"
 	"context"
-	"crypto/sha256"
+	"log"
 	"slices"
 	"strings"
 
 	"github.com/google/uuid"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 const nullID = 0
 
 type Service struct {
-	db *postgres.Repository
+	client auth.UserServiceClient
+	db     *postgres.Repository
 }
 
 func New(repo *postgres.Repository) *Service {
-	return &Service{db: repo}
+
+	conn, err := grpc.NewClient("localhost:50051", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatal(err)
+		return nil
+	}
+
+	client := auth.NewUserServiceClient(conn)
+
+	return &Service{
+		db:     repo,
+		client: client}
 }
 
 func (s *Service) CheckToken(ctx context.Context, token string) (int, error) {
@@ -131,19 +146,14 @@ func (s *Service) GetChannels(ctx context.Context, userID int) ([]model.ChannelF
 	return s.db.GetChannels(ctx, userID)
 }
 
-func (s *Service) FindUserByID(ctx context.Context, id int) (*model.UserFromDB, error) {
+func (s *Service) FindUserByID(ctx context.Context, id int) (*auth.UserByIDResponse, error) {
 
-	user, err := s.db.FindUserByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-
-	return user, nil
+	return s.client.GetUserByID(ctx, &auth.UserByIDRequest{Id: int64(id)})
 }
 
-func (s *Service) GetUsersExcept(ctx context.Context, id int) ([]*model.UserFromDB, error) {
+func (s *Service) GetUsersExcept(ctx context.Context, id int) (*auth.UsersResponse, error) {
 
-	return s.db.GetUsersExcept(ctx, id)
+	return s.client.GetUsersExcept(ctx, &auth.UserIDRequest{Id: int32(id)})
 }
 
 func (s *Service) ClearChat(ctx context.Context, chatID, userID int) (int, error) {

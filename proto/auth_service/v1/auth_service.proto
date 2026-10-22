@@ -6,8 +6,20 @@ option go_package = "gen/auth_service/v1;authservicev1";
 
 
 service UserService {
-  rpc GetUserByLogin(UserByLoginRequest) returns (UserByLoginResponse);
+  rpc GetUserByID(UserByIDRequest) returns (UserByIDResponse);
   rpc GetUsersExcept(UserIDRequest) returns (UsersResponse);
+}
+
+service TokenService {
+  rpc CheckToken(TokenRequest) returns (TokenResponse);
+}
+
+message TokenRequest{
+  string token = 1;
+}
+
+message TokenResponse {
+  int64 userID = 1;
 }
 
 message User {
@@ -28,15 +40,15 @@ message UserIDRequest {
 }
 
 message UsersResponse{
-  repeated UserFromDB items = 1;
+  repeated UserFromDB users = 1;
 }
 
-message UserByLoginRequest{
-  string login = 1;
+message UserByIDRequest{
+  int64 id = 1;
 }
 
-message UserByLoginResponse{
-  int32 id = 1;
+message UserByIDResponse{
+  int64 id = 1;
   string login = 2;
   string name = 3;
   string password = 4;
