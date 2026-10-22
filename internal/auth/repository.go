@@ -60,6 +60,23 @@ func (r *Repository) RemoveToken(ctx context.Context, token []byte) error {
 	return nil
 }
 
+func (r *Repository) LoginExists(ctx context.Context, login string) error {
+
+	row := r.pool.QueryRow(ctx, "SELECT login FROM users WHERE login = $1", login)
+
+	var dbLogin string
+
+	err := row.Scan(&dbLogin)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+
+	return errors1.ErrExistsLogin
+}
+
 func (r *Repository) CheckToken(ctx context.Context, token []byte) (int, error) {
 
 	var userID int

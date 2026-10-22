@@ -22,7 +22,7 @@ func (s *Service) validateRegister(ctx context.Context, user RegisterInput) erro
 		return err
 	}
 
-	return s.db.(ctx, user.Login)
+	return s.db.LoginExists(ctx, user.Login)
 }
 
 func hashPassword(password string) (string, error) {
