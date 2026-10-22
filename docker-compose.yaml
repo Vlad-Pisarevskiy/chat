@@ -28,7 +28,9 @@ services:
       DATABASE_URL: postgres://user:password@postgres:5432/chat_db?sslmode=disable
 
   auth:
-    build: ./internal/auth/
+    build:
+      context: .
+      dockerfile: internal/auth/Dockerfile
     depends_on:
       auth_migrator:
         condition: service_completed_successfully
@@ -39,7 +41,8 @@ services:
       DATABASE_URL: postgres://user:password@postgres:5432/auth_db?sslmode=disable
 
   chat_migrator:
-    build: ./
+    build:
+      context: .
     entrypoint: ["./migrate"]
     restart: no
     depends_on:

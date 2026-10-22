@@ -2,7 +2,6 @@ package auth
 
 import (
 	auth "chatflow/gen/auth_service/v1"
-	errors1 "chatflow/internal/app-errors"
 	"chatflow/internal/model"
 	"context"
 	"crypto/rand"
@@ -70,7 +69,7 @@ func (s *Service) CleanupTokens(ctx context.Context) (int64, error) {
 func (s *Service) LoginUser(ctx context.Context, login, password string) (*User, string, error) {
 
 	if err := correctLogin(login); err != nil {
-		return nil, emptyToken, errors1.ErrIncorrectLoginData
+		return nil, emptyToken, ErrIncorrectLoginData
 	}
 
 	user, err := s.db.FindUserByLogin(ctx, login)
@@ -79,7 +78,7 @@ func (s *Service) LoginUser(ctx context.Context, login, password string) (*User,
 	}
 
 	if err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
-		return nil, emptyToken, errors1.ErrIncorrectLoginData
+		return nil, emptyToken, ErrIncorrectLoginData
 	}
 
 	token := rand.Text()
@@ -105,19 +104,19 @@ func (s *Service) Logout(ctx context.Context, token string) error {
 func correctLogin(login string) error {
 
 	if login == emptyLogin {
-		return errors1.ErrEmptyLogin
+		return ErrEmptyLogin
 	}
 
 	if !loginRegexp.MatchString(login) {
-		return errors1.ErrLoginFormat
+		return ErrLoginFormat
 	}
 
 	if len(login) < minLoginLength {
-		return errors1.ErrShortLogin
+		return ErrShortLogin
 	}
 
 	if len(login) > maxLoginLength {
-		return errors1.ErrLongLogin
+		return ErrLongLogin
 	}
 
 	return nil

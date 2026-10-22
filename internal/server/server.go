@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"log/slog"
 	"mime"
 	"net/http"
@@ -16,11 +15,8 @@ import (
 	"strconv"
 	"strings"
 
-	auth "chatflow/gen/auth_service/v1"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 type Server struct {
@@ -343,7 +339,7 @@ func (s *Server) Chats(c *gin.Context) {
 		"Channels":  channels,
 		"Me":        me.Name,
 		"OnlineIDs": online,
-		"MyID":      me.ID,
+		"MyID":      me.Id,
 	})
 }
 

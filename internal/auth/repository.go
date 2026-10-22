@@ -68,7 +68,7 @@ func (r *Repository) CheckToken(ctx context.Context, token []byte) (int, error) 
 	err := row.Scan(&userID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nullID, errors1.ErrInvalidToken
+			return nullID, ErrInvalidToken
 		}
 		return nullID, err
 	}
@@ -103,7 +103,7 @@ func (r *Repository) FindUserByLogin(ctx context.Context, login string) (*User, 
 		&user.Login,
 		&user.Password); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, errors1.ErrIncorrectLoginData
+			return nil, ErrIncorrectLoginData
 		}
 		return nil, err
 	}

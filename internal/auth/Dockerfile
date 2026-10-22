@@ -9,17 +9,22 @@ RUN go mod download
 
 COPY config ./config
 
-COPY handler.go ./
-COPY service.go ./
-COPY repository.go ./
-COPY const.go ./
-COPY checks.go ./
-COPY model.go ./
-COPY config ./config
-COPY migrations ./migrations
+COPY gen ./gen
+
+COPY internal/auth/handler.go ./
+COPY internal/auth/service.go ./
+COPY internal/auth/repository.go ./
+COPY internal/auth/const.go ./
+COPY internal/auth/checks.go ./
+COPY internal/auth/model.go ./
+COPY internal/auth/config ./config
+COPY internal/auth/migrations ./
+
+COPY cmd/auth/ ./cmd/auth/
+COPY cmd/migrations/auth ./cmd/migrations/auth
 
 RUN CGO_ENABLED=0 go build -o auth ./cmd/auth
-RUN CGO_ENABLED=0 go build -o migrate ./cmd/migrations
+RUN CGO_ENABLED=0 go build -o migrate ./cmd/migrations/auth
 
 FROM alpine:latest
 WORKDIR /app
