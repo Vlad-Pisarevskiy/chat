@@ -19,7 +19,7 @@ services:
   chat:
     build: ./
     depends_on:
-      migrator:
+      chat_migrator:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
@@ -27,7 +27,18 @@ services:
       PORT: 8001
       DATABASE_URL: postgres://user:password@postgres:5432/chat_db?sslmode=disable
 
-  migrator:
+  auth:
+    build: ./internal/auth/
+    depends_on:
+      auth_migrator:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: 8002
+      DATABASE_URL: postgres://user:password@postgres:5432/auth_db?sslmode=disable
+
+  chat_migrator:
     build: ./
     entrypoint: ["./migrate"]
     restart: no
@@ -36,6 +47,16 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgres://user:password@postgres:5432/chat_db?sslmode=disable
+
+  auth_migrator:
+    build: ./internal/auth/
+    entrypoint: ["./migrate"]
+    restart: no
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://user:password@postgres:5432/auth_db?sslmode=disable
 
   nginx:
     image: nginx:alpine
