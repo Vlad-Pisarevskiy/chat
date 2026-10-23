@@ -1,3 +1,4 @@
 .idea
 /docs/
 .env
+/internal/auth/.env

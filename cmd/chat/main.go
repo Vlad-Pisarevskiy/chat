@@ -20,8 +20,7 @@ import (
 )
 
 const (
-	interval = time.Hour * 2
-	timeout  = time.Second * 10
+	timeout = time.Second * 10
 )
 
 func main() {
@@ -42,8 +41,6 @@ func main() {
 	hub := hub2.New()
 	repository := postgres.New(pool)
 	service := service2.New(repository)
-
-	go cleanupTokens(ctx, service)
 
 	server := server2.New(service, hub)
 	r := server.GetRouter()
@@ -70,26 +67,6 @@ func main() {
 	}
 
 	hub.Close()
-}
-
-func cleanupTokens(ctx context.Context, service *service2.Service) {
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			deleted, err := service.CleanupTokens(ctx)
-			if err != nil {
-				log.Println(err)
-				continue
-			}
-			log.Printf("Deleted %d expired tokens", deleted)
-		}
-	}
 }
 
 func listenAndServe(server *http.Server, errCh chan error) {
