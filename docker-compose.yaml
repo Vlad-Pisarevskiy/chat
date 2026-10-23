@@ -9,7 +9,7 @@ services:
     ports:
       - "5434:5432"
     volumes:
-      - pgdata:/var/lib/postgresql
+      - pgdata_chat:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
@@ -24,9 +24,9 @@ services:
       POSTGRES_PASSWORD: password
       POSTGRES_DB: auth_db
     ports:
-      - "5435:5433"
+      - "5435:5432"
     volumes:
-      - pgdata:/var/lib/postgresql
+      - pgdata_auth:/var/lib/postgresql
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\"" ]
       interval: 5s
@@ -42,20 +42,20 @@ services:
         condition: service_healthy
     environment:
       PORT: 8001
-      DATABASE_URL: postgres://user:password@postgres:5432/chat_db?sslmode=disable
+      DATABASE_URL: postgres://user:password@postgres_chat:5432/chat_db?sslmode=disable
 
   auth:
     build:
       context: .
       dockerfile: internal/auth/Dockerfile
     depends_on:
-#      auth_migrator:
-#        condition: service_completed_successfully
+      auth_migrator:
+        condition: service_completed_successfully
       postgres_chat:
         condition: service_healthy
     environment:
       PORT: 8002
-      DATABASE_URL: postgres://user:password@postgres:5433/auth_db?sslmode=disable
+      DATABASE_URL: postgres://user:password@postgres_auth:5432/auth_db?sslmode=disable
 
   chat_migrator:
     build:
@@ -78,7 +78,7 @@ services:
       postgres_chat:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://user:password@postgres:5433/auth_db?sslmode=disable
+      DATABASE_URL: postgres://user:password@postgres_auth:5432/auth_db?sslmode=disable
 
   nginx:
     image: nginx:alpine
@@ -89,4 +89,5 @@ services:
      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
 
 volumes:
-  pgdata:
+  pgdata_chat:
+  pgdata_auth:

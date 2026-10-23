@@ -5,7 +5,7 @@ import (
 	"mime"
 	"net/http"
 
-	auth "chatflow/gen/auth_service/v1"
+	authserv "chatflow/gen/auth_service/v1"
 
 	"github.com/gin-gonic/gin"
 )
@@ -23,7 +23,8 @@ type LoginRequest struct {
 
 type Handler struct {
 	service *Service
-	auth.UnimplementedUserServiceServer
+	authserv.UnimplementedUserServiceServer
+	authserv.UnimplementedTokenServiceServer
 }
 
 func NewHandler(service *Service) *Handler {
@@ -31,24 +32,24 @@ func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
-func (h *Handler) GetUsersExcept(ctx context.Context, request *auth.UserIDRequest) (*auth.UsersResponse, error) {
+func (h *Handler) GetUsersExcept(ctx context.Context, request *authserv.UserIDRequest) (*authserv.UsersResponse, error) {
 
 	users, err := h.service.GetUserExcept(ctx, int(request.Id))
 	if err != nil {
 		return nil, err
 	}
 
-	return &auth.UsersResponse{Users: users}, nil
+	return &authserv.UsersResponse{Users: users}, nil
 }
 
-func (h *Handler) CheckToken(ctx context.Context, token *auth.TokenRequest) (*auth.TokenResponse, error) {
+func (h *Handler) CheckToken(ctx context.Context, token *authserv.TokenRequest) (*authserv.TokenResponse, error) {
 
 	userID, err := h.service.CheckToken(ctx, token.Token)
 	if err != nil {
 		return nil, err
 	}
 
-	return &auth.TokenResponse{UserID: int64(userID)}, nil
+	return &authserv.TokenResponse{UserID: int64(userID)}, nil
 }
 
 func (h *Handler) RegisterRouter() *gin.Engine {
@@ -60,12 +61,12 @@ func (h *Handler) RegisterRouter() *gin.Engine {
 	r.GET("/register", h.Registration)
 	r.GET("/login", h.Authorization)
 
-	au := r.Group("/au")
-	au.Use(jsonOnly())
+	auth := r.Group("/auth")
+	auth.Use(jsonOnly())
 	{
-		au.POST("/register", h.Register)
-		au.POST("/login", h.Login)
-		au.POST("/logout", h.Logout)
+		auth.POST("/register", h.Register)
+		auth.POST("/login", h.Login)
+		auth.POST("/logout", h.Logout)
 	}
 
 	return r
@@ -83,6 +84,7 @@ func (h *Handler) Register(c *gin.Context) {
 
 	var registerRequest RegisterRequest
 	if err := c.ShouldBindJSON(&registerRequest); err != nil {
+		c.Status(http.StatusBadRequest)
 		return
 	}
 
@@ -93,6 +95,7 @@ func (h *Handler) Register(c *gin.Context) {
 	}
 
 	if err := h.service.RegisterUser(c.Request.Context(), request); err != nil {
+		c.Status(http.StatusBadRequest)
 		return
 	}
 
