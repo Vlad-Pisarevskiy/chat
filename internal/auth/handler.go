@@ -23,8 +23,8 @@ type LoginRequest struct {
 
 type Handler struct {
 	service *Service
-	authserv.UnimplementedUserServiceServer
-	authserv.UnimplementedTokenServiceServer
+	authserv.UnsafeTokenServiceServer
+	authserv.UnsafeUserServiceServer
 }
 
 func NewHandler(service *Service) *Handler {
@@ -32,7 +32,11 @@ func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
-func (h *Handler) GetUsersExcept(ctx context.Context, request *authserv.UserIDRequest) (*authserv.UsersResponse, error) {
+func (h *Handler) UserByID(ctx context.Context, request *authserv.UserByIDRequest) (*authserv.UserByIDResponse, error) {
+
+}
+
+func (h *Handler) UsersExcept(ctx context.Context, request *authserv.UserIDRequest) (*authserv.UsersResponse, error) {
 
 	users, err := h.service.GetUserExcept(ctx, int(request.Id))
 	if err != nil {
@@ -114,6 +118,7 @@ func (h *Handler) Login(c *gin.Context) {
 		request.Login,
 		request.Password,
 	)
+
 	if err != nil {
 		return
 	}

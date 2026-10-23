@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -36,9 +37,17 @@ func main() {
 	service := auth.NewService(repository)
 	handler := auth.NewHandler(service)
 
+	lis, err := net.Listen("tcp", "auth:50051")
+	if err != nil {
+		log.Fatalf("listen: %v", err)
+	}
+
 	s := grpc.NewServer()
 	authserv.RegisterUserServiceServer(s, handler)
 	authserv.RegisterTokenServiceServer(s, handler)
+	go func() {
+		log.Fatal(s.Serve(lis))
+	}()
 
 	go cleanupTokens(ctx, service)
 
