@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"chatflow/internal/service"
 	"time"
 )
 
@@ -47,7 +46,6 @@ const (
 	// Тело запроса с картинкой ограничено с запасом на поля multipart. Файл
 	// больше MaxImageSize в него ещё помещается: тогда 413 отвечает сервис.
 	multipartOverhead = 1 << 20
-	maxRequestBytes   = service.MaxImageSize + multipartOverhead
 
 	// Запись картинки не обрывается вместе с клиентом: сообщение, которое
 	// сохранилось, должно быть разослано.

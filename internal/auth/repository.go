@@ -2,8 +2,6 @@ package auth
 
 import (
 	auth "chatflow/gen/auth_service/v1"
-	errors1 "chatflow/internal/app-errors"
-	"chatflow/internal/model"
 	"context"
 	"errors"
 	"fmt"
@@ -23,7 +21,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-func (r *Repository) RegisterUser(ctx context.Context, client model.User) error {
+func (r *Repository) RegisterUser(ctx context.Context, client User) error {
 
 	_, err := r.pool.Exec(ctx, "INSERT INTO users(name, login, password) VALUES ($1, $2, $3)",
 		client.Name, client.Login, client.Password)
@@ -31,7 +29,7 @@ func (r *Repository) RegisterUser(ctx context.Context, client model.User) error 
 		// Два одновременных запроса с одним логином оба проходят LoginExists,
 		// второго останавливает только UNIQUE.
 		if isUniqueViolation(err) {
-			return errors1.ErrExistsLogin
+			return ErrExistsLogin
 		}
 		return fmt.Errorf("регистрация пользователя: %w", err)
 	}
@@ -74,7 +72,7 @@ func (r *Repository) LoginExists(ctx context.Context, login string) error {
 		return err
 	}
 
-	return errors1.ErrExistsLogin
+	return ErrExistsLogin
 }
 
 func (r *Repository) CheckToken(ctx context.Context, token []byte) (int, error) {

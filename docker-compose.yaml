@@ -32,8 +32,8 @@ services:
       context: .
       dockerfile: internal/auth/Dockerfile
     depends_on:
-      auth_migrator:
-        condition: service_completed_successfully
+#      auth_migrator:
+#        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     environment:
@@ -51,15 +51,15 @@ services:
     environment:
       DATABASE_URL: postgres://user:password@postgres:5432/chat_db?sslmode=disable
 
-  auth_migrator:
-    build: ./internal/auth/
-    entrypoint: ["./migrate"]
-    restart: no
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: postgres://user:password@postgres:5432/auth_db?sslmode=disable
+#  auth_migrator:
+#    build: ./internal/auth/
+#    entrypoint: ["./migrate"]
+#    restart: no
+#    depends_on:
+#      postgres:
+#        condition: service_healthy
+#    environment:
+#      DATABASE_URL: postgres://user:password@postgres:5432/auth_db?sslmode=disable
 
   nginx:
     image: nginx:alpine

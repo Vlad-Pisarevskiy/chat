@@ -1,7 +1,7 @@
 package config
 
 import (
-	errors1 "chatflow/internal/app-errors"
+	"chatflow/internal/auth"
 	"log"
 	"os"
 
@@ -17,7 +17,7 @@ func InitConfig() {
 	}
 
 	if DBPath() == "" {
-		log.Fatal(errors1.ErrEmptyDatabasePath)
+		log.Fatal(auth.ErrEmptyDatabasePath)
 	}
 }
 

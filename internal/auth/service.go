@@ -2,7 +2,6 @@ package auth
 
 import (
 	auth "chatflow/gen/auth_service/v1"
-	"chatflow/internal/model"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -35,7 +34,7 @@ func (s *Service) RegisterUser(ctx context.Context, input RegisterInput) error {
 		return err
 	}
 
-	user := model.User{
+	user := User{
 		Name:     input.Name,
 		Login:    input.Login,
 		Password: hash,

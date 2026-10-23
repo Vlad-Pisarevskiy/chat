@@ -1,7 +1,6 @@
 package auth
 
 import (
-	errors1 "chatflow/internal/app-errors"
 	"context"
 	"unicode/utf8"
 
@@ -36,11 +35,11 @@ func hashPassword(password string) (string, error) {
 func correctName(name string) error {
 
 	if name == emptyName {
-		return errors1.ErrEmptyName
+		return ErrEmptyName
 	}
 
 	if utf8.RuneCountInString(name) > maxNameLength {
-		return errors1.ErrLongName
+		return ErrLongName
 	}
 
 	return nil
@@ -49,19 +48,19 @@ func correctName(name string) error {
 func correctPassword(password string) error {
 
 	if password == emptyPassword {
-		return errors1.ErrEmptyPassword
+		return ErrEmptyPassword
 	}
 
 	length := utf8.RuneCountInString(password)
 	if length < minPasswordLength {
-		return errors1.ErrShortPassword
+		return ErrShortPassword
 	}
 
 	// bcrypt смотрит только на первые 72 байта и на более длинный пароль
 	// возвращает ошибку. Кириллица — два байта на букву, поэтому лимит по байтам
 	// проверяется отдельно от лимита по символам.
 	if length > maxPasswordLength || len(password) > maxPasswordBytes {
-		return errors1.ErrLongPassword
+		return ErrLongPassword
 	}
 
 	return nil

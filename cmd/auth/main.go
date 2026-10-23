@@ -1,8 +1,9 @@
 package main
 
 import (
-	"chatflow/config"
 	"chatflow/internal/auth"
+	"chatflow/internal/auth/config"
+	conf "chatflow/internal/auth/config"
 	"context"
 	"fmt"
 	"log"
@@ -23,7 +24,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := pgxpool.New(context.Background(), config.DBPath())
+	pool, err := pgxpool.New(context.Background(), conf.DBPath())
 	if err != nil {
 		log.Fatal(err)
 	}
