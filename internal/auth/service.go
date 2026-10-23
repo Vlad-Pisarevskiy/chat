@@ -43,6 +43,11 @@ func (s *Service) RegisterUser(ctx context.Context, input RegisterInput) error {
 	return s.db.RegisterUser(ctx, user)
 }
 
+func (s *Service) UserByID(ctx context.Context, id int) (*UserFromDB, error) {
+
+	return s.db.FindUserByID(ctx, id)
+}
+
 func (s *Service) GetUserExcept(ctx context.Context, id int) ([]*auth.UserFromDB, error) {
 
 	return s.db.GetUsersExcept(ctx, id)

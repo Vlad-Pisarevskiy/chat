@@ -7,6 +7,12 @@ type User struct {
 	Password string
 }
 
+type UserFromDB struct {
+	ID    int
+	Name  string
+	Login string
+}
+
 type UserFromAuth struct {
 	ID    int
 	Name  string

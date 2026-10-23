@@ -374,7 +374,6 @@ type UserByIDResponse struct {
 	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
 	Login         string                 `protobuf:"bytes,2,opt,name=login,proto3" json:"login,omitempty"`
 	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	Password      string                 `protobuf:"bytes,4,opt,name=password,proto3" json:"password,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -430,13 +429,6 @@ func (x *UserByIDResponse) GetName() string {
 	return ""
 }
 
-func (x *UserByIDResponse) GetPassword() string {
-	if x != nil {
-		return x.Password
-	}
-	return ""
-}
-
 var File_proto_auth_service_v1_auth_service_proto protoreflect.FileDescriptor
 
 const file_proto_auth_service_v1_auth_service_proto_rawDesc = "" +
@@ -461,12 +453,11 @@ const file_proto_auth_service_v1_auth_service_proto_rawDesc = "" +
 	"\rUsersResponse\x121\n" +
 	"\x05users\x18\x01 \x03(\v2\x1b.user_service.v1.UserFromDBR\x05users\"!\n" +
 	"\x0fUserByIDRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id\"h\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\"L\n" +
 	"\x10UserByIDResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x14\n" +
 	"\x05login\x18\x02 \x01(\tR\x05login\x12\x12\n" +
-	"\x04name\x18\x03 \x01(\tR\x04name\x12\x1a\n" +
-	"\bpassword\x18\x04 \x01(\tR\bpassword2\xad\x01\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name2\xad\x01\n" +
 	"\vUserService\x12O\n" +
 	"\bUserByID\x12 .user_service.v1.UserByIDRequest\x1a!.user_service.v1.UserByIDResponse\x12M\n" +
 	"\vUsersExcept\x12\x1e.user_service.v1.UserIDRequest\x1a\x1e.user_service.v1.UsersResponse2[\n" +

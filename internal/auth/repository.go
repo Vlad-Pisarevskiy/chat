@@ -147,6 +147,24 @@ func (r *Repository) GetUsersExcept(ctx context.Context, id int) ([]*auth.UserFr
 	return users, nil
 }
 
+func (r *Repository) FindUserByID(ctx context.Context, id int) (*UserFromDB, error) {
+
+	var user UserFromDB
+
+	row := r.pool.QueryRow(ctx, "SELECT id, name, login FROM users WHERE id=$1", id)
+	if err := row.Scan(
+		&user.ID,
+		&user.Name,
+		&user.Login); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrUserDoesntExist
+		}
+		return nil, err
+	}
+
+	return &user, nil
+}
+
 func scanRows(rows pgx.Rows, users []*auth.UserFromDB) ([]*auth.UserFromDB, error) {
 
 	for rows.Next() {

@@ -34,6 +34,16 @@ func NewHandler(service *Service) *Handler {
 
 func (h *Handler) UserByID(ctx context.Context, request *authserv.UserByIDRequest) (*authserv.UserByIDResponse, error) {
 
+	user, err := h.service.UserByID(ctx, int(request.Id))
+	if err != nil {
+		return nil, err
+	}
+
+	return &authserv.UserByIDResponse{
+		Id:    int64(user.ID),
+		Login: user.Login,
+		Name:  user.Name,
+	}, nil
 }
 
 func (h *Handler) UsersExcept(ctx context.Context, request *authserv.UserIDRequest) (*authserv.UsersResponse, error) {

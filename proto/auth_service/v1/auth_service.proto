@@ -51,5 +51,4 @@ message UserByIDResponse{
   int64 id = 1;
   string login = 2;
   string name = 3;
-  string password = 4;
 }

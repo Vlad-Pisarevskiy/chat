@@ -147,9 +147,27 @@ func (s *Service) FindUserByID(ctx context.Context, id int) (*auth.UserByIDRespo
 	return s.clients.UserByID(ctx, &auth.UserByIDRequest{Id: int64(id)})
 }
 
-func (s *Service) GetUsersExcept(ctx context.Context, id int) (*auth.UsersResponse, error) {
+func (s *Service) GetUsersExcept(ctx context.Context, id int) ([]*model.UserFromAuth, error) {
 
-	return s.clients.UsersExcept(ctx, &auth.UserIDRequest{Id: int32(id)})
+	rpcUsers, err := s.clients.UsersExcept(ctx, &auth.UserIDRequest{Id: int32(id)})
+	if err != nil {
+		return nil, err
+	}
+
+	users := make([]*model.UserFromAuth, 0, len(rpcUsers.Users))
+
+	for _, user := range rpcUsers.Users {
+
+		u := model.UserFromAuth{
+			ID:    int(user.Id),
+			Name:  user.Name,
+			Login: user.Login,
+		}
+
+		users = append(users, &u)
+	}
+
+	return users, nil
 }
 
 func (s *Service) ClearChat(ctx context.Context, chatID, userID int) (int, error) {
