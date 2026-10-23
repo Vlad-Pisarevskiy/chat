@@ -1,6 +1,7 @@
 package main
 
 import (
+	authserv "chatflow/gen/auth_service/v1"
 	"chatflow/internal/auth"
 	"chatflow/internal/auth/config"
 	conf "chatflow/internal/auth/config"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"google.golang.org/grpc"
 )
 
 const (
@@ -33,6 +35,10 @@ func main() {
 	repository := auth.NewRepository(pool)
 	service := auth.NewService(repository)
 	handler := auth.NewHandler(service)
+
+	s := grpc.NewServer()
+	authserv.RegisterUserServiceServer(s, handler)
+	authserv.RegisterTokenServiceServer(s, handler)
 
 	go cleanupTokens(ctx, service)
 
