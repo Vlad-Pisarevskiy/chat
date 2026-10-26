@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Регистрация</title>
+<title>Вход</title>
 <style>
   * { box-sizing: border-box; }
 
@@ -49,6 +49,7 @@
   button:disabled { opacity: 0.5; cursor: progress; }
 
   #message { min-height: 20px; font-size: 14px; color: #c2334d; }
+  #message[data-ok] { color: #2e7d4f; }
 
   .foot { font-size: 14px; }
   a { color: #0088b0; }
@@ -57,28 +58,25 @@
 <body>
 
 <main>
-  <h1>Регистрация</h1>
+  <h1>Вход</h1>
 
   <form id="form" novalidate>
-    <label for="name">Имя</label>
-    <input id="name" type="text" required autocomplete="name">
-
     <label for="login">Логин</label>
     <input id="login" type="text" required autocomplete="username">
 
     <label for="password">Пароль</label>
-    <input id="password" type="password" required minlength="8" autocomplete="new-password">
+    <input id="password" type="password" required autocomplete="current-password">
 
-    <button id="submit" type="submit">Зарегистрироваться</button>
+    <button id="submit" type="submit">Войти</button>
   </form>
 
   <p id="message" role="alert" aria-live="polite"></p>
 
-  <p class="foot">Уже есть аккаунт? <a href="/login">Войти</a></p>
+  <p class="foot">Нет аккаунта? <a href="/register">Зарегистрироваться</a></p>
 </main>
 
 <script>
-// POST /auth/register {name, login, password} -> 200 с пустым телом при успехе
+// POST /auth/login {login, password} -> 200 + cookie token
 "use strict";
 
 const form = document.getElementById("form");
@@ -91,22 +89,26 @@ form.addEventListener("submit", async (event) => {
   if (!form.reportValidity()) return;
 
   submit.disabled = true;
+  message.removeAttribute("data-ok");
   message.textContent = "";
 
   try {
-    const response = await fetch("/auth/register", {
+    const response = await fetch("/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
       body: JSON.stringify({
-        name: document.getElementById("name").value.trim(),
         login: document.getElementById("login").value.trim(),
         password: document.getElementById("password").value,
       }),
     });
 
     if (response.ok) {
-      location.href = "/login";
+      form.hidden = true;
+      message.dataset.ok = "";
+      message.textContent = "Вы вошли";
+      // Со слэшем: маршрут объявлен как /users/, на /users gin ответил бы редиректом.
+      location.assign("/users/");
       return;
     }
 
@@ -118,11 +120,11 @@ form.addEventListener("submit", async (event) => {
   submit.disabled = false;
 });
 
-// Register кладёт текст в "error", Login — в "error:"; у пустого тела нет ни того, ни другого.
+// Сервер кладёт текст ошибки в "error"; у пустого тела его нет.
 async function errorText(response) {
   try {
     const body = await response.json();
-    const text = body["error"] || body["error:"];
+    const text = body["error"];
     if (typeof text === "string" && text) return text;
   } catch {}
   return "Ошибка " + response.status;

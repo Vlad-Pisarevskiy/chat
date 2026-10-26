@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package user_service.v1;
+
+option go_package = "gen/auth_service/v1;authservicev1";
+
+
+service UserService {
+  rpc UserByID(UserByIDRequest) returns (UserByIDResponse);
+  rpc UsersExcept(UserIDRequest) returns (UsersResponse);
+}
+
+service TokenService {
+  rpc CheckToken(TokenRequest) returns (TokenResponse);
+}
+
+message TokenRequest{
+  string token = 1;
+}
+
+message TokenResponse {
+  int64 userID = 1;
+}
+
+message User {
+  int32 id = 1;
+  string login = 2;
+  string name = 3;
+  string password = 4;
+}
+
+message UserFromDB {
+  int32 id = 1;
+  string login = 2;
+  string name = 3;
+}
+
+message UserIDRequest {
+  int32 id = 1;
+}
+
+message UsersResponse{
+  repeated UserFromDB users = 1;
+}
+
+message UserByIDRequest{
+  int64 id = 1;
+}
+
+message UserByIDResponse{
+  int64 id = 1;
+  string login = 2;
+  string name = 3;
+}

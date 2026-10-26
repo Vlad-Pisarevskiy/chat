@@ -1,9 +1,10 @@
 package main
 
 import (
-	"chatflow/config"
 	"database/sql"
 	"log"
+
+	authconfig "chatflow/internal/auth/config"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
@@ -12,7 +13,7 @@ import (
 
 func main() {
 
-	config.InitConfig()
+	authconfig.InitConfig()
 
 	db, err := connect()
 	if err != nil {
@@ -39,9 +40,6 @@ func main() {
 				          ('Пользователь2', 'user2', $1),
 				          ('Пользователь3', 'user3', $1)`, hash)
 
-	_, err = db.Exec(`INSERT INTO chats(name, type, owner_id, handle, description)
-				   VALUES ('Новостной канал', 'channel', 1, 'team_news', 'новостной канал')`)
-
 	if err != nil {
 		log.Println(err)
 	}
@@ -49,7 +47,7 @@ func main() {
 
 func connect() (*sql.DB, error) {
 
-	connStr := config.DBPath()
+	connStr := authconfig.DBPath()
 	db, err := sql.Open("pgx", connStr)
 	if err != nil {
 		return nil, err
