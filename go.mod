@@ -46,7 +46,7 @@ require (
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jonboulle/clockwork v0.5.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/klauspost/compress v1.19.1 // indirect
+	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/mattn/go-isatty v0.0.23 // indirect
@@ -58,7 +58,7 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/paulmach/orb v0.13.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
-	github.com/pierrec/lz4/v4 v4.1.27 // indirect
+	github.com/pierrec/lz4/v4 v4.1.33 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/procfs v0.21.1 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
@@ -70,6 +70,7 @@ require (
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/tursodatabase/libsql-client-go v0.0.0-20260528064733-9d5d30a29a60 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
+	github.com/twmb/franz-go v1.22.2 // indirect
 	github.com/ugorji/go/codec v1.3.1 // indirect
 	github.com/vertica/vertica-sql-go v1.3.8 // indirect
 	github.com/ydb-platform/ydb-go-genproto v0.0.0-20260428144813-1c07baab7f7b // indirect
