@@ -6,11 +6,11 @@ import (
 )
 
 const (
-	readBuffer    = 1024
-	writeBuffer   = 1024
-	msgBufferSize = 256
-	readLimit     = 32 * 1024
-	cookieMaxAge  = int((time.Hour * 24 * 30) / time.Second)
+	readBufferSize  = 1024
+	writeBufferSize = 1024
+	msgBufferSize   = 256
+	readLimit       = 32 * 1024
+	cookieMaxAge    = int((time.Hour * 24 * 30) / time.Second)
 
 	readDeadline  = time.Second * 30
 	writeDeadline = time.Second * 30

@@ -120,41 +120,42 @@ services:
       MP_SMTP_AUTH_ACCEPT_ANY: 1
       MP_SMTP_AUTH_ALLOW_INSECURE: 1
 
-  kafka:
-    image: apache/kafka:4.3.1
-    hostname: kafka
-    ports:
-      - "9092:9092"                 # EXTERNAL: для программ на твоей машине
-    environment:
-      # --- KRaft: этот узел одновременно брокер (хранит данные) и контроллер (хранит метаданные) ---
-      KAFKA_NODE_ID: 1
-      KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-
-      # --- Listeners: на каких портах слушать и какой адрес сообщать клиентам ---
-      KAFKA_LISTENERS: EXTERNAL://:9092,INTERNAL://:19092,CONTROLLER://:9093
-      KAFKA_ADVERTISED_LISTENERS: EXTERNAL://localhost:9092,INTERNAL://kafka:19092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: EXTERNAL:PLAINTEXT,INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-
-      # --- Брокер один, поэтому служебные топики храним в одной копии (в уроке 5 будет три) ---
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-
-      # --- Где лежат данные. Папка смонтирована в volume, поэтому переживает down/up ---
-      KAFKA_LOG_DIRS: /var/lib/kafka/data
-
-      # Утилиты Kafka лежат в /opt/kafka/bin. Добавляем их в PATH, чтобы писать
-      # «kafka-topics.sh», а не «/opt/kafka/bin/kafka-topics.sh».
-      PATH: /opt/kafka/bin:/opt/java/openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-    volumes:
-      - kafka-data:/var/lib/kafka/data
+#  kafka:
+#    image: apache/kafka:4.3.1
+#    hostname: kafka
+#    ports:
+#      - "9092:9092"                 # EXTERNAL: для программ на твоей машине
+#    environment:
+#      # --- KRaft: этот узел одновременно брокер (хранит данные) и контроллер (хранит метаданные) ---
+#      KAFKA_NODE_ID: 1
+#      KAFKA_PROCESS_ROLES: broker,controller
+#      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+#      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+#
+#      # --- Listeners: на каких портах слушать и какой адрес сообщать клиентам ---
+#      KAFKA_LISTENERS: EXTERNAL://:9092,INTERNAL://:19092,CONTROLLER://:9093
+#      KAFKA_ADVERTISED_LISTENERS: EXTERNAL://localhost:9092,INTERNAL://kafka:19092
+#      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: EXTERNAL:PLAINTEXT,INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+#      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+#
+#      # --- Брокер один, поэтому служебные топики храним в одной копии (в уроке 5 будет три) ---
+#      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+#      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+#      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+#      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+#
+#      # --- Где лежат данные. Папка смонтирована в volume, поэтому переживает down/up ---
+#      KAFKA_LOG_DIRS: /var/lib/kafka/data
+#
+#      # Утилиты Kafka лежат в /opt/kafka/bin. Добавляем их в PATH, чтобы писать
+#      # «kafka-topics.sh», а не «/opt/kafka/bin/kafka-topics.sh».
+#      PATH: /opt/kafka/bin:/opt/java/openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+#    volumes:
+#      - kafka-data:/var/lib/kafka/data
 
 volumes:
   pgdata_chat:
   pgdata_auth:
   kafka-data:
+  pgdata_notifications:
   data:

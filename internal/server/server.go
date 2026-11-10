@@ -20,21 +20,59 @@ import (
 )
 
 type Server struct {
-	upgrader websocket.Upgrader
-	service  *service.Service
-	hub      *hub.Hub
+	upgrader    websocket.Upgrader
+	service     *service.Service
+	hub         *hub.Hub
+	readBuffer  int
+	writeBuffer int
 }
 
-func New(service *service.Service, hub *hub.Hub) *Server {
+type Option func(*Server) error
 
-	return &Server{
+func WithReadBuffer(size int) Option {
+
+	return func(s *Server) error {
+
+		if size <= 0 {
+			return errors.New("read buffer cant be negative or null")
+		}
+
+		s.readBuffer = size
+		return nil
+	}
+}
+
+func WithWriteBuffer(size int) Option {
+	return func(s *Server) error {
+
+		if size <= 0 {
+			return errors.New("write buffer cant be negative or null")
+		}
+
+		s.writeBuffer = size
+		return nil
+	}
+}
+
+func New(service *service.Service, hub *hub.Hub, opts ...Option) (*Server, error) {
+
+	s := &Server{
 		upgrader: websocket.Upgrader{
-			ReadBufferSize:  readBuffer,
-			WriteBufferSize: writeBuffer,
+			ReadBufferSize:  readBufferSize,
+			WriteBufferSize: writeBufferSize,
 			CheckOrigin:     sameOrigin,
 		},
 		service: service,
 		hub:     hub}
+
+	for _, opt := range opts {
+
+		if err := opt(s); err != nil {
+			return nil, err
+		}
+	}
+
+	return s, nil
 }
 
 func (s *Server) GetRouter() *gin.Engine {

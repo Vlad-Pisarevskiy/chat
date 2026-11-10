@@ -42,7 +42,10 @@ func main() {
 	repository := postgres.New(pool)
 	service := service2.New(repository)
 
-	server := server2.New(service, hub)
+	server, err := server2.New(service, hub, server2.WithReadBuffer(1024))
+	if err != nil {
+		log.Fatal(err)
+	}
 	r := server.GetRouter()
 
 	srv := &http.Server{
