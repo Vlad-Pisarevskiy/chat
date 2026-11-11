@@ -25,8 +25,16 @@ func SmtpPort() string {
 	return os.Getenv("SMTP_PORT")
 }
 
+func Port() string {
+	return os.Getenv("PORT")
+}
+
 func SmtpHost() string {
 	return os.Getenv("SMTP_HOST")
+}
+
+func KafkaTopic() string {
+	return os.Getenv("TOPIC")
 }
 
 func DBPath() string {
