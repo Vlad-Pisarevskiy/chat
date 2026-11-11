@@ -24,6 +24,8 @@ const (
 
 func main() {
 
+	conf.InitConfig()
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -37,7 +39,7 @@ func main() {
 	service := auth.NewService(repository)
 	handler := auth.NewHandler(service)
 
-	lis, err := net.Listen("tcp", "auth:50051")
+	lis, err := net.Listen("tcp", fmt.Sprintf("%s:%s", conf.Host(), conf.Port()))
 	if err != nil {
 		log.Fatalf("listen: %v", err)
 	}
