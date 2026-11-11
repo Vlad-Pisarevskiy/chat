@@ -51,32 +51,39 @@ services:
       retries: 5
 
   chat:
-    build: ./
+    build:
+      context: .
+      dockerfile: services/chat/Dockerfile
     depends_on:
       chat_migrator:
         condition: service_completed_successfully
       postgres_chat:
         condition: service_healthy
+      auth:
+        condition: service_started
     environment:
       PORT: 8001
+      AUTH_GRPC_ADDR: auth:50051
       DATABASE_URL: postgres://user:password@postgres_chat:5432/chat_db?sslmode=disable
 
   auth:
     build:
       context: .
-      dockerfile: internal/auth/Dockerfile
+      dockerfile: services/auth/Dockerfile
     depends_on:
       auth_migrator:
         condition: service_completed_successfully
-      postgres_chat:
+      postgres_auth:
         condition: service_healthy
     environment:
       PORT: 8002
+      GRPC_PORT: 50051
       DATABASE_URL: postgres://user:password@postgres_auth:5432/auth_db?sslmode=disable
 
   chat_migrator:
     build:
       context: .
+      dockerfile: services/chat/Dockerfile
     entrypoint: ["./migrate"]
     restart: no
     depends_on:
@@ -88,18 +95,48 @@ services:
   auth_migrator:
     build:
       context: .
-      dockerfile: ./internal/auth/Dockerfile
+      dockerfile: services/auth/Dockerfile
     entrypoint: ["./migrate"]
     restart: no
     depends_on:
-      postgres_chat:
+      postgres_auth:
         condition: service_healthy
     environment:
       DATABASE_URL: postgres://user:password@postgres_auth:5432/auth_db?sslmode=disable
 
+  notifications:
+    profiles: [notifications]
+    build:
+      context: .
+      dockerfile: services/notifications/Dockerfile
+    depends_on:
+      notifications_migrator:
+        condition: service_completed_successfully
+      mailpit:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgres://user:password@postgres_notifications:5432/notifications_db?sslmode=disable
+      KAFKA_BROKERS: kafka:19092
+      TOPIC: notifications
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+
+  notifications_migrator:
+    profiles: [notifications]
+    build:
+      context: .
+      dockerfile: services/notifications/Dockerfile
+    entrypoint: ["./migrate"]
+    restart: no
+    depends_on:
+      postgres_notifications:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://user:password@postgres_notifications:5432/notifications_db?sslmode=disable
+
   nginx:
     image: nginx:alpine
-    depends_on: [ chat ]
+    depends_on: [ chat, auth ]
     ports:
       - "8081:80"
     volumes:

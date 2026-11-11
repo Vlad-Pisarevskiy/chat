@@ -1,0 +1,10 @@
+.git
+.idea
+.env
+.env.*
+**/.env
+**/.env.*
+data
+bin
+docs
+coverage.out

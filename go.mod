@@ -70,7 +70,9 @@ require (
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/tursodatabase/libsql-client-go v0.0.0-20260528064733-9d5d30a29a60 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
-	github.com/twmb/franz-go v1.22.2 // indirect
+	github.com/twmb/franz-go v1.22.3 // indirect
+	github.com/twmb/franz-go/pkg/kadm v1.20.0 // indirect
+	github.com/twmb/franz-go/pkg/kmsg v1.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.1 // indirect
 	github.com/vertica/vertica-sql-go v1.3.8 // indirect
 	github.com/ydb-platform/ydb-go-genproto v0.0.0-20260428144813-1c07baab7f7b // indirect

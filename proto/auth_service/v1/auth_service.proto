@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package user_service.v1;
 
-option go_package = "gen/auth_service/v1;authservicev1";
+option go_package = "chatflow/gen/auth_service/v1;authservicev1";
 
 
 service UserService {

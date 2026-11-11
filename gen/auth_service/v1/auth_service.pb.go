@@ -463,7 +463,7 @@ const file_proto_auth_service_v1_auth_service_proto_rawDesc = "" +
 	"\vUsersExcept\x12\x1e.user_service.v1.UserIDRequest\x1a\x1e.user_service.v1.UsersResponse2[\n" +
 	"\fTokenService\x12K\n" +
 	"\n" +
-	"CheckToken\x12\x1d.user_service.v1.TokenRequest\x1a\x1e.user_service.v1.TokenResponseB#Z!gen/auth_service/v1;authservicev1b\x06proto3"
+	"CheckToken\x12\x1d.user_service.v1.TokenRequest\x1a\x1e.user_service.v1.TokenResponseB,Z*chatflow/gen/auth_service/v1;authservicev1b\x06proto3"
 
 var (
 	file_proto_auth_service_v1_auth_service_proto_rawDescOnce sync.Once

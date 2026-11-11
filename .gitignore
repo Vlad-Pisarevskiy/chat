@@ -1,4 +1,9 @@
-.idea
+.idea/
 /docs/
 .env
-/internal/auth/.env
+.env.*
+!.env.example
+!.env.sample
+/data/
+/bin/
+/coverage.out
