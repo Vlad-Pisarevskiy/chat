@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -57,11 +58,15 @@ func main() {
 	}
 	defer client.Close()
 
+	if err = client.Ping(ctx); err != nil {
+		log.Fatal(err)
+	}
+
 	kafkaClient := kafka.NewClient(client)
 	service := service2.New(repository, authConn, kafkaClient)
 
 	admin := kafka.NewAdmin(kafkaClient)
-	if err = admin.InitTopic(ctx, config.KafkaTopic(), defaultPartitions); err != nil {
+	if err = admin.InitTopic(ctx, config.KafkaTopic(), defaultPartitions); err != nil && errors.Is(err, kerr.TopicAlreadyExists) {
 		log.Fatal(err)
 	}
 

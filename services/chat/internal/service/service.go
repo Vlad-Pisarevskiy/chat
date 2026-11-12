@@ -272,6 +272,8 @@ func (s *Service) SendMessage(ctx context.Context, message protocol.Send, from i
 		return nil, err
 	}
 
+	s.kafka.Send()
+
 	return &SentMessage{Message: msg, Recipients: recipients, Duplicate: duplicate}, nil
 }
 
