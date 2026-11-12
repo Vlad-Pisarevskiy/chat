@@ -13,10 +13,10 @@ type Client struct {
 }
 
 type Notification struct {
-	ChatID   string
-	SenderID string
-	Title    string
-	Preview  string
+	ChatID   string `json:"chat_id"`
+	SenderID string `json:"sender_id"`
+	Title    string `json:"title"`
+	Preview  string `json:"preview"`
 }
 
 func NewClient(client *kgo.Client) *Client {
@@ -37,7 +37,6 @@ func (c *Client) Send(ctx context.Context, notify Notification) error {
 	}
 
 	c.client.Produce(ctx, rec, func(rec *kgo.Record, err error) {
-
 		if err != nil {
 			log.Println(err)
 			return

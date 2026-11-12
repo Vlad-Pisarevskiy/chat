@@ -88,28 +88,13 @@ func (s *Server) Run() {
 
 		fetches.EachRecord(func(r *kgo.Record) {
 
-			var data Data
-			if err := json.Unmarshal(r.Value, &data); err != nil {
+			var notify Notification
+			if err := json.Unmarshal(r.Value, &notify); err != nil {
 				log.Println(err)
 				return
-				//TODO: Ретраи, добавить в другую партицию итд
 			}
 
-			switch data.Type {
-			case "chat_notify":
-				var chatNotify ChatNotify
-				if err := json.Unmarshal(data.Payload, &chatNotify); err != nil {
-					log.Println(err)
-				}
-
-			case "channel_notify":
-				var channelNotify ChannelNotify
-				if err := json.Unmarshal(data.Payload, &channelNotify); err != nil {
-					log.Println(err)
-				}
-			}
-
-			if err := s.service.ProcessNotify(data); err != nil {
+			if err := s.service.ProcessNotify(notify); err != nil {
 				log.Println(err)
 			}
 		})

@@ -3,13 +3,15 @@ package service
 import (
 	auth "chatflow/gen/auth_service/v1"
 	errors1 "chatflow/services/chat/internal/app-errors"
-	internal "chatflow/services/chat/internal/kafka"
+	"chatflow/services/chat/internal/kafka"
 	"chatflow/services/chat/internal/model"
 	"chatflow/services/chat/internal/protocol"
 	"chatflow/services/chat/internal/repository/postgres"
 	"context"
 	"errors"
+	"log"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -21,21 +23,21 @@ import (
 const nullID = 0
 
 type Service struct {
-	clients auth.UserServiceClient
-	tokens  auth.TokenServiceClient
-	db      *postgres.Repository
-	kafka   *internal.Client
+	users  auth.UserServiceClient
+	tokens auth.TokenServiceClient
+	db     *postgres.Repository
+	kafka  *kafka.Client
 }
 
-func New(repo *postgres.Repository, conn grpc.ClientConnInterface, kafka *internal.Client) *Service {
+func New(repo *postgres.Repository, conn grpc.ClientConnInterface, kafka *kafka.Client) *Service {
 	client := auth.NewUserServiceClient(conn)
 	tokens := auth.NewTokenServiceClient(conn)
 
 	return &Service{
-		db:      repo,
-		clients: client,
-		tokens:  tokens,
-		kafka:   kafka,
+		db:     repo,
+		users:  client,
+		tokens: tokens,
+		kafka:  kafka,
 	}
 }
 
@@ -152,7 +154,7 @@ func (s *Service) GetChannels(ctx context.Context, userID int) ([]model.ChannelF
 
 func (s *Service) FindUserByID(ctx context.Context, id int) (*auth.UserByIDResponse, error) {
 
-	user, err := s.clients.UserByID(ctx, &auth.UserByIDRequest{Id: int64(id)})
+	user, err := s.users.UserByID(ctx, &auth.UserByIDRequest{Id: int64(id)})
 	if status.Code(err) == codes.NotFound {
 		return nil, errors1.ErrUserDoesntExist
 	}
@@ -161,7 +163,7 @@ func (s *Service) FindUserByID(ctx context.Context, id int) (*auth.UserByIDRespo
 
 func (s *Service) GetUsersExcept(ctx context.Context, id int) ([]*model.UserFromAuth, error) {
 
-	rpcUsers, err := s.clients.UsersExcept(ctx, &auth.UserIDRequest{Id: int32(id)})
+	rpcUsers, err := s.users.UsersExcept(ctx, &auth.UserIDRequest{Id: int32(id)})
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +274,22 @@ func (s *Service) SendMessage(ctx context.Context, message protocol.Send, from i
 		return nil, err
 	}
 
-	s.kafka.Send()
+	resp, err := s.users.UserByID(ctx, &auth.UserByIDRequest{Id: int64(msg.SenderID)})
+	if err != nil {
+		log.Println(err)
+		return &SentMessage{Message: msg, Recipients: recipients, Duplicate: duplicate}, nil
+	}
+
+	notify := kafka.Notification{
+		ChatID:   strconv.Itoa(msg.ChatID),
+		SenderID: strconv.Itoa(msg.SenderID),
+		Title:    resp.Name,
+		Preview:  msg.Body[:maxCharsPerNotify],
+	}
+
+	if err = s.kafka.Send(ctx, notify); err != nil {
+		log.Println(err)
+	}
 
 	return &SentMessage{Message: msg, Recipients: recipients, Duplicate: duplicate}, nil
 }

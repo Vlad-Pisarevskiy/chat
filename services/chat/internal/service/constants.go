@@ -34,4 +34,6 @@ const (
 	emptyPassword
 	emptyToken
 	emptyBody
+
+	maxCharsPerNotify = 50
 )

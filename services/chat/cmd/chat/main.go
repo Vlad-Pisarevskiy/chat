@@ -57,6 +57,9 @@ func main() {
 		log.Fatal(err)
 	}
 	defer client.Close()
+	defer func() {
+		_ = client.Flush(ctx)
+	}()
 
 	if err = client.Ping(ctx); err != nil {
 		log.Fatal(err)
