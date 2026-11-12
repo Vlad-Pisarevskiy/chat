@@ -3,6 +3,7 @@ package service
 import (
 	auth "chatflow/gen/auth_service/v1"
 	errors1 "chatflow/services/chat/internal/app-errors"
+	internal "chatflow/services/chat/internal/kafka"
 	"chatflow/services/chat/internal/model"
 	"chatflow/services/chat/internal/protocol"
 	"chatflow/services/chat/internal/repository/postgres"
@@ -23,9 +24,10 @@ type Service struct {
 	clients auth.UserServiceClient
 	tokens  auth.TokenServiceClient
 	db      *postgres.Repository
+	kafka   *internal.Client
 }
 
-func New(repo *postgres.Repository, conn grpc.ClientConnInterface) *Service {
+func New(repo *postgres.Repository, conn grpc.ClientConnInterface, kafka *internal.Client) *Service {
 	client := auth.NewUserServiceClient(conn)
 	tokens := auth.NewTokenServiceClient(conn)
 
@@ -33,6 +35,7 @@ func New(repo *postgres.Repository, conn grpc.ClientConnInterface) *Service {
 		db:      repo,
 		clients: client,
 		tokens:  tokens,
+		kafka:   kafka,
 	}
 }
 

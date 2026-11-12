@@ -62,6 +62,9 @@ services:
       auth:
         condition: service_started
     environment:
+      KAFKA_PORT: 19092
+      KAFKA_TOPIC: notifications
+      KAFKA_HOST: kafka
       PORT: 8001
       AUTH_GRPC_ADDR: auth:50051
       DATABASE_URL: postgres://user:password@postgres_chat:5432/chat_db?sslmode=disable

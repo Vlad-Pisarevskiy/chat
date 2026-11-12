@@ -8,6 +8,7 @@ import (
 	"log"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
@@ -31,6 +32,8 @@ func main() {
 		log.Fatal(err)
 	}
 	defer kafkaClient.Close()
+
+	admin := kadm.NewClient(kafkaClient)
 
 	mail, err := notification.NewMail(fmt.Sprintf("%s:%s", conf.SmtpHost(), conf.SmtpPort()))
 	if err != nil {

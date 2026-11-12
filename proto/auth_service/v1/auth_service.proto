@@ -4,7 +4,6 @@ package user_service.v1;
 
 option go_package = "chatflow/gen/auth_service/v1;authservicev1";
 
-
 service UserService {
   rpc UserByID(UserByIDRequest) returns (UserByIDResponse);
   rpc UsersExcept(UserIDRequest) returns (UsersResponse);

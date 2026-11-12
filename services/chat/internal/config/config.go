@@ -41,3 +41,15 @@ func Host() string {
 func DBPath() string {
 	return os.Getenv("DATABASE_URL")
 }
+
+func KafkaPort() string {
+	return os.Getenv("KAFKA_PORT")
+}
+
+func KafkaHost() string {
+	return os.Getenv("KAFKA_HOST")
+}
+
+func KafkaTopic() string {
+	return os.Getenv("KAFKA_TOPIC")
+}

@@ -3,6 +3,7 @@ package main
 import (
 	"chatflow/services/chat/internal/config"
 	hub2 "chatflow/services/chat/internal/hub"
+	"chatflow/services/chat/internal/kafka"
 	"chatflow/services/chat/internal/repository/postgres"
 	server2 "chatflow/services/chat/internal/server"
 	service2 "chatflow/services/chat/internal/service"
@@ -17,12 +18,14 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/twmb/franz-go/pkg/kgo"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 const (
-	timeout = time.Second * 10
+	timeout           = time.Second * 10
+	defaultPartitions = 3
 )
 
 func main() {
@@ -47,9 +50,22 @@ func main() {
 		log.Fatal(err)
 	}
 	defer authConn.Close()
-	service := service2.New(repository, authConn)
 
-	server, err := server2.New(service, hub, server2.WithReadBuffer(1024))
+	client, err := kgo.NewClient(kgo.SeedBrokers(fmt.Sprintf("%s:%s", config.KafkaHost(), config.KafkaPort())))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer client.Close()
+
+	kafkaClient := kafka.NewClient(client)
+	service := service2.New(repository, authConn, kafkaClient)
+
+	admin := kafka.NewAdmin(kafkaClient)
+	if err = admin.InitTopic(ctx, config.KafkaTopic(), defaultPartitions); err != nil {
+		log.Fatal(err)
+	}
+
+	server, err := server2.New(service, hub)
 	if err != nil {
 		log.Fatal(err)
 	}
