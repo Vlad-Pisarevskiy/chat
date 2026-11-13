@@ -1,4 +1,4 @@
-package internal
+package kafka
 
 import (
 	"github.com/twmb/franz-go/pkg/kadm"
@@ -9,12 +9,11 @@ type KafkaClient struct {
 	client *kgo.Client
 }
 
-func NewKafkaClient(client * kgo.Client) *KafkaClient{
+func NewKafkaClient(client *kgo.Client) *KafkaClient {
 
 	return &KafkaClient{client: client}
 }
 
 type KafkaAdmin struct {
-
 	admin *kadm.Client
 }

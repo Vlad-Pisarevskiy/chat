@@ -1,8 +1,10 @@
 package main
 
 import (
-	notification "chatflow/services/notifications/internal"
 	conf "chatflow/services/notifications/internal/config"
+	repository2 "chatflow/services/notifications/internal/repository"
+	server2 "chatflow/services/notifications/internal/server"
+	notification "chatflow/services/notifications/internal/service"
 	"context"
 	"fmt"
 	"log"
@@ -22,7 +24,7 @@ func main() {
 	}
 	defer pool.Close()
 
-	repository := notification.NewRepository(pool)
+	repository := repository2.NewRepository(pool)
 	service := notification.NewService(repository)
 
 	kafkaClient, err := kgo.NewClient(
@@ -40,6 +42,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-	server := notification.NewServer(service, kafkaClient, mail)
+	server := server2.NewServer(service, kafkaClient, mail)
 	server.Run()
 }

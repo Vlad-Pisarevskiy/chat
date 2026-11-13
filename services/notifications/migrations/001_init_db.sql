@@ -1,7 +1,12 @@
 -- +goose Up
 CREATE TABLE notifications(
-    type TEXT,
-    sender INT
+    id SERIAL,
+    chat_id INT,
+    sender_id INT,
+    recipients_ids INT[],
+    title TEXT,
+    preview TEXT,
+    date TIMESTAMP
 );
 
 -- +goose Down
