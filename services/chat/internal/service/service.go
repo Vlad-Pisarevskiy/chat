@@ -29,12 +29,12 @@ type Service struct {
 }
 
 func New(repo *postgres.Repository, conn grpc.ClientConnInterface, kafka *kafka.Client) *Service {
-	client := auth.NewUserServiceClient(conn)
+	users := auth.NewUserServiceClient(conn)
 	tokens := auth.NewTokenServiceClient(conn)
 
 	return &Service{
 		db:     repo,
-		users:  client,
+		users:  users,
 		tokens: tokens,
 		kafka:  kafka,
 	}

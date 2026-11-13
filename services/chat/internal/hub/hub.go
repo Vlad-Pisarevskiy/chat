@@ -1,7 +1,10 @@
 package hub
 
 import (
+	notifyserv "chatflow/gen/notify_service/v1"
 	"chatflow/services/chat/internal/protocol"
+	"context"
+	"encoding/json"
 	"log"
 	"maps"
 	"slices"
@@ -35,6 +38,22 @@ type Conn struct {
 	ch     chan protocol.Data
 	userID int
 	done   <-chan struct{}
+}
+
+func (h *Hub) SendNotify(ctx context.Context, req *notifyserv.NotifyRequest) (*notifyserv.NotifyResponse, error) {
+
+	notify, err := json.Marshal(req)
+
+	if err != nil {
+		return nil, err
+	}
+
+	data := &protocol.Data{
+		Type:    "notification",
+		Payload: notify,
+	}
+
+	h.Send([]int{int(req.UserID)}, data)
 }
 
 func (h *Hub) Add(userID int, conn *websocket.Conn, msgChan chan protocol.Data, done <-chan struct{}) (*Conn, int) {
