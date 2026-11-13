@@ -20,6 +20,10 @@ const (
 	KindChannel = "channel"
 )
 
+const (
+	NotificationType = "notification"
+)
+
 type Data struct {
 	Type    string          `json:"type"`
 	Payload json.RawMessage `json:"payload"`

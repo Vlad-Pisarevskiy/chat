@@ -16,23 +16,25 @@ import (
 )
 
 type session struct {
-	userID  int
-	conn    *websocket.Conn
-	msgChan chan protocol.Data
-	hub     *hub.Hub
-	service *service.Service
-	ctx     context.Context
-	cancel  context.CancelFunc
+	userID     int
+	conn       *websocket.Conn
+	msgChan    chan protocol.Data
+	notifyChan chan bool
+	hub        *hub.Hub
+	service    *service.Service
+	ctx        context.Context
+	cancel     context.CancelFunc
 }
 
 func newSession(userID int, conn *websocket.Conn, hub2 *hub.Hub, service2 *service.Service) *session {
 
 	var sess = &session{
-		userID:  userID,
-		conn:    conn,
-		msgChan: make(chan protocol.Data, msgBufferSize),
-		hub:     hub2,
-		service: service2,
+		userID:     userID,
+		conn:       conn,
+		msgChan:    make(chan protocol.Data, msgBufferSize),
+		notifyChan: make(chan bool, msgBufferSize),
+		hub:        hub2,
+		service:    service2,
 	}
 
 	sess.ctx, sess.cancel = context.WithCancel(context.Background())
@@ -42,7 +44,7 @@ func newSession(userID int, conn *websocket.Conn, hub2 *hub.Hub, service2 *servi
 
 func (s *session) handle() {
 
-	userConn, status := s.hub.Add(s.userID, s.conn, s.msgChan, s.ctx.Done())
+	userConn, status := s.hub.Add(s.userID, s.conn, s.msgChan, s.notifyChan, s.ctx.Done())
 	defer func() {
 		status = s.hub.RemoveConn(userConn)
 		if status == hub.StatusOffline {
@@ -239,7 +241,14 @@ func (s *session) writer() {
 		case msg := <-s.msgChan:
 			if err := s.write(msg); err != nil {
 				s.drop(err)
+				if msg.Type == protocol.NotificationType {
+					s.notifyChan <- false
+				}
 				return
+			}
+
+			if msg.Type == protocol.NotificationType {
+				s.notifyChan <- true
 			}
 
 		case <-ticker.C:

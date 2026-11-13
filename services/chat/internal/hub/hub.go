@@ -34,10 +34,11 @@ func New() *Hub {
 }
 
 type Conn struct {
-	ws     *websocket.Conn
-	ch     chan protocol.Data
-	userID int
-	done   <-chan struct{}
+	ws       *websocket.Conn
+	ch       chan protocol.Data
+	notifyCh chan bool
+	userID   int
+	done     <-chan struct{}
 }
 
 func (h *Hub) SendNotify(ctx context.Context, req *notifyserv.NotifyRequest) (*notifyserv.NotifyResponse, error) {
@@ -49,21 +50,42 @@ func (h *Hub) SendNotify(ctx context.Context, req *notifyserv.NotifyRequest) (*n
 	}
 
 	data := &protocol.Data{
-		Type:    "notification",
+		Type:    protocol.NotificationType,
 		Payload: notify,
 	}
 
 	h.Send([]int{int(req.UserID)}, data)
+
+	h.mu.RLock()
+
+	var notifyChannels []<-chan bool
+	for conn := range h.conns[int(req.UserID)] {
+		notifyChannels = append(notifyChannels, conn.notifyCh)
+	}
+
+	h.mu.RUnlock()
+
+	for _, notifyCh := range notifyChannels {
+		select {
+		case sent := <-notifyCh:
+			return &notifyserv.NotifyResponse{Send: sent}, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+
+	return nil, nil
 }
 
-func (h *Hub) Add(userID int, conn *websocket.Conn, msgChan chan protocol.Data, done <-chan struct{}) (*Conn, int) {
+func (h *Hub) Add(userID int, conn *websocket.Conn, msgChan chan protocol.Data, notify chan bool, done <-chan struct{}) (*Conn, int) {
 
 	status := StatusOffline
 	userConn := &Conn{
-		ws:     conn,
-		ch:     msgChan,
-		userID: userID,
-		done:   done,
+		ws:       conn,
+		ch:       msgChan,
+		notifyCh: notify,
+		userID:   userID,
+		done:     done,
 	}
 
 	h.mu.Lock()
