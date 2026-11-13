@@ -11,7 +11,6 @@ import (
 	"errors"
 	"log"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -281,10 +280,11 @@ func (s *Service) SendMessage(ctx context.Context, message protocol.Send, from i
 	}
 
 	notify := kafka.Notification{
-		ChatID:   strconv.Itoa(msg.ChatID),
-		SenderID: strconv.Itoa(msg.SenderID),
-		Title:    resp.Name,
-		Preview:  msg.Body[:maxCharsPerNotify],
+		ChatID:        msg.ChatID,
+		SenderID:      msg.SenderID,
+		RecipientsIDs: recipients,
+		Title:         resp.Name,
+		Preview:       msg.Body[:maxCharsPerNotify],
 	}
 
 	if err = s.kafka.Send(ctx, notify); err != nil {

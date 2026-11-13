@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"strconv"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 )
@@ -13,10 +14,11 @@ type Client struct {
 }
 
 type Notification struct {
-	ChatID   string `json:"chat_id"`
-	SenderID string `json:"sender_id"`
-	Title    string `json:"title"`
-	Preview  string `json:"preview"`
+	ChatID        int    `json:"chat_id"`
+	SenderID      int    `json:"sender_id"`
+	RecipientsIDs []int  `json:"recipients_ids"`
+	Title         string `json:"title"`
+	Preview       string `json:"preview"`
 }
 
 func NewClient(client *kgo.Client) *Client {
@@ -32,7 +34,7 @@ func (c *Client) Send(ctx context.Context, notify Notification) error {
 	}
 
 	rec := &kgo.Record{
-		Key:   []byte(notify.ChatID),
+		Key:   []byte(strconv.Itoa(notify.ChatID)),
 		Value: data,
 	}
 
