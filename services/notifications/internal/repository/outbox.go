@@ -9,7 +9,7 @@ type OutboxRepository struct {
 }
 type OutboxTask struct {
 	Type          string
-	Done          bool
+	Status        string
 	ChatID        int
 	SenderID      int
 	RecipientsIDs []int
@@ -26,7 +26,7 @@ func (r *OutboxRepository) AddTask(ctx context.Context, task OutboxTask) error {
 	_, err := r.tx.Exec(ctx, `INSERT INTO outbox (type, done, chat_id, sender_id, recipients_ids, title, preview)
 									VALUES($1,$2,$3,$4,$5,$6,$7)`,
 		task.Type,
-		task.Done,
+		task.Status,
 		task.ChatID,
 		task.SenderID,
 		task.RecipientsIDs,

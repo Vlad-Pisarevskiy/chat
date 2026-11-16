@@ -5,6 +5,9 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY services/notifications ./services/notifications
+COPY gen ./gen
+COPY services/notifications ./services/notifications
+
 RUN CGO_ENABLED=0 go build -o /out/notifications ./services/notifications/cmd/notifications
 RUN CGO_ENABLED=0 go build -o /out/migrate ./services/notifications/cmd/migrations
 

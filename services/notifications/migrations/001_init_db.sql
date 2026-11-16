@@ -13,7 +13,7 @@ CREATE TABLE notifications(
 CREATE TABLE outbox(
     task_id INT,
     type TEXT,
-    done BOOLEAN,
+    status TEXT CHECK ( status IN ('pending', 'done', 'failed', 'in progress')),
     chat_id INT,
     sender_id INT,
     recipients_ids INT[],

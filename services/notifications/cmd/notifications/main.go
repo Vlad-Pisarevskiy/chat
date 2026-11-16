@@ -10,7 +10,6 @@ import (
 	"log"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
@@ -24,8 +23,13 @@ func main() {
 	}
 	defer pool.Close()
 
+	mail, err := notification.NewMail(fmt.Sprintf("%s:%s", conf.SmtpHost(), conf.SmtpPort()))
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	repository := repository2.NewRepository(pool)
-	service := notification.NewService(repository)
+	service := notification.NewService(repository, mail)
 
 	kafkaClient, err := kgo.NewClient(
 		kgo.SeedBrokers(conf.KafkaBrokers()...),
@@ -35,13 +39,6 @@ func main() {
 	}
 	defer kafkaClient.Close()
 
-	admin := kadm.NewClient(kafkaClient)
-
-	mail, err := notification.NewMail(fmt.Sprintf("%s:%s", conf.SmtpHost(), conf.SmtpPort()))
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	server := server2.NewServer(service, kafkaClient, mail)
-	server.Run()
+	server := server2.NewServer(service, kafkaClient)
+	server.Run(context.Background())
 }

@@ -43,7 +43,7 @@ func (s *Server) Run(ctx context.Context) {
 				return
 			}
 
-			if err := s.service.ProcessNotify(processCtx, notify); err != nil {
+			if err := s.service.SaveNotify(processCtx, notify); err != nil {
 				log.Println(err)
 				return
 			}
