@@ -8,12 +8,12 @@ import (
 )
 
 type Service struct {
-	db            *repository.Repository
+	db            *repository.NotifyRepository
 	mail          *Mail
 	notifications notifyserv.NotifyServiceClient
 }
 
-func NewService(db *repository.Repository, mail *Mail) *Service {
+func NewService(db *repository.NotifyRepository, mail *Mail) *Service {
 	return &Service{
 		db:   db,
 		mail: mail}
@@ -22,29 +22,37 @@ func NewService(db *repository.Repository, mail *Mail) *Service {
 func (s *Service) ProcessNotify(ctx context.Context, notify model.Notification) error {
 
 	//TODO outbox
-	if err := s.db.SaveNotify(ctx, notify); err != nil {
+	dbNotify, err := s.db.SaveNotify(ctx, notify)
+	if err != nil {
 		return err
 	}
 
 	for _, recipient := range notify.RecipientsIDs {
 
-		if err := s.mail.send(notify.Title, notify.Preview); err != nil {
+		if err = s.mail.send(notify.Title, notify.Preview); err != nil {
 			return err
 		}
 
-		send, err := s.notifications.SendNotify(ctx, &notifyserv.NotifyRequest{
+		resp, err := s.notifications.SendNotify(ctx, &notifyserv.NotifyRequest{
 			UserID:  int64(recipient),
 			Title:   notify.Title,
 			Preview: notify.Preview,
 		})
 
-		if !send {
-
-		}
-
 		if err != nil {
 			return err
 		}
+
+		if resp.Send {
+			if err = s.db.ChangeStatus(ctx, dbNotify.ID, "delivered"); err != nil {
+				return err
+			}
+		} else {
+			if err = s.db.ChangeStatus(ctx, dbNotify.ID, "failed"); err != nil {
+				return err
+			}
+		}
+
 	}
 
 	return nil
