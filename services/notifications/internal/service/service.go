@@ -1,22 +1,18 @@
 package service
 
 import (
-	notifyserv "chatflow/gen/notify_service/v1"
 	"chatflow/services/notifications/internal/model"
 	"chatflow/services/notifications/internal/repository"
 	"context"
 )
 
 type Service struct {
-	uow           *repository.UnitOfWork
-	mail          *Mail
-	notifications notifyserv.NotifyServiceClient
+	uow *repository.UnitOfWork
 }
 
-func NewService(db *repository.UnitOfWork, mail *Mail) *Service {
+func NewService(db *repository.UnitOfWork) *Service {
 	return &Service{
-		uow:  db,
-		mail: mail}
+		uow: db}
 }
 
 func (s *Service) SaveNotify(ctx context.Context, notify model.Notification) error {
@@ -57,30 +53,3 @@ func (s *Service) SaveNotify(ctx context.Context, notify model.Notification) err
 		return nil
 	})
 }
-
-//for _, recipient := range notify.RecipientsIDs {
-//
-//if err = s.mail.send(notify.Title, notify.Preview); err != nil {
-//	return err
-//}
-//
-//resp, err := s.notifications.SendNotify(ctx, &notifyserv.NotifyRequest{
-//	UserID:  int64(recipient),
-//	Title:   notify.Title,
-//	Preview: notify.Preview,
-//})
-
-//if err != nil {
-//	return err
-//}
-
-//if resp.Send {
-//	if err = r.Notify.ChangeStatus(ctx, dbNotify.ID, "delivered"); err != nil {
-//		return err
-//	}
-//} else {
-//	if err = r.Notify.ChangeStatus(ctx, dbNotify.ID, "failed"); err != nil {
-//		return err
-//	}
-//}
-//}

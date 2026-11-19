@@ -6,7 +6,6 @@ import (
 	server2 "chatflow/services/notifications/internal/server"
 	notification "chatflow/services/notifications/internal/service"
 	"context"
-	"fmt"
 	"log"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -23,13 +22,8 @@ func main() {
 	}
 	defer pool.Close()
 
-	mail, err := notification.NewMail(fmt.Sprintf("%s:%s", conf.SmtpHost(), conf.SmtpPort()))
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	repository := repository2.NewRepository(pool)
-	service := notification.NewService(repository, mail)
+	uow := repository2.NewUnitOfWork(pool)
+	service := notification.NewService(uow)
 
 	kafkaClient, err := kgo.NewClient(
 		kgo.SeedBrokers(conf.KafkaBrokers()...),
