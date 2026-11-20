@@ -58,7 +58,7 @@ func NewMail(addr string, opts ...Option) (*Mail, error) {
 	return e, nil
 }
 
-func (s *Mail) send(userName, preview string) error {
+func (s *Mail) Send(userName, preview string) error {
 
 	from := s.sender
 	to := []string{fmt.Sprintf("%s", s.receiver)}

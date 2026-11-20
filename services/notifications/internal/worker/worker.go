@@ -11,14 +11,15 @@ import (
 type Worker struct {
 	mail          *Mail
 	notifications notifyserv.NotifyServiceClient
-	db            *repository.OutboxRepository
+	outbox        *repository.OutboxRepository
+	db            *repository.MissingReposiroty
 }
 
 func NewWorker(db *repository.OutboxRepository, mail *Mail) *Worker {
 
 	return &Worker{
-		db:   db,
-		mail: mail,
+		outbox: db,
+		mail:   mail,
 	}
 }
 
@@ -26,7 +27,7 @@ func (w *Worker) Run(ctx context.Context) error {
 
 	for {
 
-		tasks, err := w.db.GetTasks(ctx)
+		tasks, err := w.outbox.GetTasks(ctx)
 		if err != nil {
 			return err
 		}
@@ -44,10 +45,10 @@ func (w *Worker) Process(ctx context.Context, tasks []repository.TaskFromDB) err
 		case "mail":
 
 			for _, _ = range task.RecipientsIDs {
-				if err := w.mail.send(task.Title, task.Preview); err != nil {
+				if err := w.mail.Send(task.Title, task.Preview); err != nil {
 					log.Println(err)
 
-					if err = w.db.ClaimFailed(ctx, task.ID); err != nil {
+					if err = w.outbox.ChangeStatus(ctx, task.ID, "failed"); err != nil {
 						log.Println(err)
 					}
 				}
@@ -58,14 +59,14 @@ func (w *Worker) Process(ctx context.Context, tasks []repository.TaskFromDB) err
 			if err := w.Send(ctx, task); err != nil {
 				log.Println(err)
 
-				if err = w.db.ClaimFailed(ctx, task.ID); err != nil {
+				if err = w.outbox.ChangeStatus(ctx, task.ID, "failed"); err != nil {
 					log.Println(err)
 				}
 			}
 
 		default:
 			fmt.Printf("Unknown type of task %d", task.ID)
-			if err := w.db.ClaimFailed(ctx, task.ID); err != nil {
+			if err := w.outbox.ChangeStatus(ctx, task.ID, "failed"); err != nil {
 				log.Println(err)
 			}
 		}
@@ -88,13 +89,14 @@ func (w *Worker) Send(ctx context.Context, task repository.TaskFromDB) error {
 		}
 
 		if resp.Send {
-			if err = w.db.ChangeStatus(ctx, task.ID, "delivered"); err != nil {
+			if err = w.outbox.ChangeStatus(ctx, task.ID, "delivered"); err != nil {
 				return err
 			}
 		} else {
-			if err = w.db.ChangeStatus(ctx, task.ID, "failed"); err != nil {
+			if err = w.outbox.ChangeStatus(ctx, task.ID, "missed"); err != nil {
 				return err
 			}
+			w.outbox.ChangeStatus()
 		}
 	}
 

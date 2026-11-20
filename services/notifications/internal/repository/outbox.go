@@ -30,6 +30,10 @@ type TaskFromDB struct {
 	Preview       string `db:"preview"`
 }
 
+type Notification struct {
+	ID int
+}
+
 func NewOutboxRepo(tx DBTX) *OutboxRepository {
 	return &OutboxRepository{tx: tx}
 }
@@ -68,16 +72,6 @@ func (r *OutboxRepository) GetTasks(ctx context.Context) ([]TaskFromDB, error) {
 	return tasks, nil
 }
 
-func (r *OutboxRepository) ClaimFailed(ctx context.Context, taskID int) error {
-
-	_, err := r.tx.Exec(ctx, `UPDATE outbox SET status = $1 WHERE task_id = $2`,
-		"failed", taskID)
-
-	if err != nil {
-		return err
-	}
-}
-
 func (r *OutboxRepository) ChangeStatus(ctx context.Context, id int, status string) error {
 
 	_, err := r.tx.Exec(ctx, `UPDATE notifications
@@ -88,5 +82,11 @@ func (r *OutboxRepository) ChangeStatus(ctx context.Context, id int, status stri
 	}
 
 	return nil
+}
 
+func (r *OutboxRepository) FetchMissing(ctx context.Context, userID int) {
+
+	row := r.tx.QueryRow(ctx, `SELECT id FROM missing WHERE id = $1`, userID)
+
+	row.Scan()
 }

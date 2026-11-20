@@ -51,3 +51,23 @@ func (r *NotifyRepository) ChangeStatus(ctx context.Context, id int, status stri
 	return nil
 
 }
+
+func (r *NotifyRepository) AddMissingID(ctx context.Context, userID int) error {
+
+	_, err := r.tx.Exec(ctx, `INSERT INTO missing (id) VALUES ($1)`, userID)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *NotifyRepository) RemoveMissingID(ctx context.Context, userID int) error {
+
+	_, err := r.tx.Exec(ctx, `DELETE FROM missing WHERE id = $1`, userID)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}

@@ -21,5 +21,9 @@ CREATE TABLE outbox(
     preview TEXT
 );
 
+CREATE TABLE websocket_recipients(
+    id INT
+);
+
 -- +goose Down
 DROP TABLE notifications;
